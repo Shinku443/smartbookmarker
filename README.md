@@ -120,3 +120,134 @@ The web app is the playground — build features once, then port them.
 Tagging, metadata extraction, and content analysis are structured for future AI integration.
 4. Extensible Architecture
 Adapters, models, and utilities are designed to grow without breaking.
+
+------------------------------------------------------------------------------
+# ✅ Setup & Installation
+📦 Requirements
+- Node.js 18+
+- npm (or pnpm/yarn)
+- VS Code recommended
+- Chrome (for extension development)
+- Expo CLI (for mobile development)
+🛠️ Install dependencies
+From the project root:
+npm install
+
+
+This installs dependencies for all workspace packages:
+- packages/core
+- packages/web
+- packages/extension
+- packages/mobile
+
+✅ Development Workflow
+🌐 Web App (React + Vite)
+cd packages/web
+npm run dev
+
+
+Runs the web UI at:
+http://localhost:5173
+
+
+This is the fastest way to test core logic and UI changes.
+
+🧩 Browser Extension (Chrome)
+cd packages/extension
+npm run build
+
+
+Then load the extension:
+- Open Chrome
+- Go to chrome://extensions
+- Enable Developer Mode
+- Click Load unpacked
+- Select packages/extension/dist
+
+📱 Mobile App (Expo)
+cd packages/mobile
+npm start
+
+
+Then open:
+- iOS Simulator
+- Android Emulator
+- Expo Go app on your phone
+
+✅ Project Structure Overview
+EmperorBookmarking/
+  package.json
+  pnpm-workspace.yaml
+  tsconfig.json
+
+  packages/
+    core/
+      src/
+        models/
+        tagging/
+        importer/
+        storage/
+        ai/
+      index.ts
+
+    web/
+      src/
+        App.tsx
+        main.tsx
+        storage/
+      vite.config.ts
+
+    extension/
+      src/
+        background.ts
+        popup/
+        options/
+      manifest.json
+      vite.config.ts
+
+    mobile/
+      App.tsx
+      metro.config.js
+
+
+✅ Core principles
+- Shared logic lives in @smart/core
+- Each platform implements its own storage adapter
+- UI layers stay thin and declarative
+- Tagging engine is AI‑ready
+- Importer supports Chrome/Firefox HTML exports
+
+✅ Roadmap
+This is a living roadmap that reflects the project’s long‑term vision.
+✅ Phase 1 — Core Foundations (in progress)
+- ✅ Bookmark model
+- ✅ Tagging engine (heuristics + AI stub)
+- ✅ HTML importer
+- ✅ Storage adapter interface
+- ✅ Web app scaffolding
+- ✅ Monorepo setup
+✅ Phase 2 — Web App MVP
+- Add bookmark UI
+- Tag display + filtering
+- Search
+- HTML import UI
+- Bookmark editing
+- Local persistence
+✅ Phase 3 — Chrome Extension MVP
+- Background script
+- Popup UI (React)
+- Save current tab
+- Auto‑tagging
+- Sync with core logic
+✅ Phase 4 — Mobile MVP
+- Bookmark list
+- Add bookmark
+- Tag filtering
+- Local persistence
+✅ Phase 5 — AI & Sync
+- AI tag generation via backend
+- Thumbnail generation
+- Cloud sync
+- User accounts
+- Multi‑device history
+
