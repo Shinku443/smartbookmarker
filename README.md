@@ -1,4 +1,4 @@
-🦾 Emperor Bookmarking
+# 🦾 Emperor Bookmarking
 A cross‑platform, AI‑ready bookmarking system built for speed, structure, and future expansion.
 Emperor Bookmarking is a modern, multi‑platform bookmarking ecosystem designed to unify how users save, organize, tag, and explore their links across web, browser extension, and mobile environments.
 The project is built as a TypeScript monorepo with a shared core library, ensuring consistent behavior and logic across every platform.
