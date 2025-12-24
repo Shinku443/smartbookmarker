@@ -7,6 +7,7 @@ export interface BookmarkTag {
 
 export interface Bookmark {
   id: string;
+  bookId: string | null
   url: string;
   title: string;
   description?: string;

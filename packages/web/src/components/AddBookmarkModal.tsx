@@ -2,73 +2,70 @@ import React, { useState } from "react";
 import { Card } from "./ui/Card";
 import { Input } from "./ui/Input";
 import { Button } from "./ui/Button";
-import type { RichBookmark } from "../models/RichBookmark";
 import type { Book } from "../models/Book";
 
 /**
- * EditBookmarkModal.tsx
- * ---------------------
- * A modal form for editing existing bookmarks.
- * Allows modification of title, URL, tags, and book assignment.
- * Pre-populates fields with current bookmark data and handles book creation.
+ * AddBookmarkModal.tsx
+ * --------------------
+ * A comprehensive modal for adding new bookmarks with advanced options.
+ * Allows users to specify title, URL, tags, and assign to existing or new books.
+ * Handles book creation inline if needed, providing a seamless bookmark addition experience.
  */
 
 /**
  * Props Interface
  * ---------------
- * Defines the properties for the EditBookmarkModal component.
+ * Defines the properties for the AddBookmarkModal component.
  */
 type Props = {
-  /** The bookmark being edited */
-  bookmark: RichBookmark;
   /** Array of existing books for selection */
   books: Book[];
-  /** Callback to create a new book */
+  /** Callback to add a new page/bookmark with all specified details */
+  onAddPage: (
+    title: string,
+    url: string,
+    bookId: string | null,
+    tags: string[]
+  ) => void;
+  /** Callback to create a new book and return it */
   onCreateBook: (name: string) => Book;
-  /** Callback to save the updated bookmark */
-  onSave: (updated: RichBookmark) => void;
   /** Callback to close the modal */
   onClose: () => void;
 };
 
 /**
- * EditBookmarkModal Component
- * ---------------------------
- * Renders a modal form pre-filled with bookmark data for editing.
- * Manages complex state for book selection including inline creation.
+ * AddBookmarkModal Component
+ * --------------------------
+ * Renders a modal dialog for adding bookmarks with full feature set.
+ * Manages complex state for book selection, including creation of new books.
  *
  * @param props - The component props
- * @returns JSX element for the bookmark edit modal
+ * @returns JSX element for the bookmark addition modal
  */
-export default function EditBookmarkModal({
-  bookmark,
+export default function AddBookmarkModal({
   books,
+  onAddPage,
   onCreateBook,
-  onSave,
   onClose
 }: Props) {
-  // Initialize form state with current bookmark data
-  const [title, setTitle] = useState(bookmark.title);
-  const [url, setUrl] = useState(bookmark.url);
-  const [tagString, setTagString] = useState(
-    (bookmark.tags ?? []).map((t) => t.label).join("; ") // Convert tags to semicolon-separated string
+  // Form state
+  const [title, setTitle] = useState("");
+  const [url, setUrl] = useState("");
+  const [tagString, setTagString] = useState("");
+  // Book selection: "none" for no book, "new" for creating new, or book ID
+  const [selectedBookId, setSelectedBookId] = useState<string | "new" | "none">(
+    "none"
   );
-
-  // Book selection state, defaulting to current book or "none"
-  const initialBookId = bookmark.bookId ?? "none";
-  const [selectedBookId, setSelectedBookId] = useState<
-    string | "new" | "none"
-  >(initialBookId as any);
   const [newBookName, setNewBookName] = useState("");
 
   /**
-   * handleSave
-   * -----------
+   * handleSubmit
+   * -------------
    * Processes the form submission, handling book creation if needed.
-   * Parses tags, constructs updated bookmark object, and saves changes.
-   * Closes the modal after successful save.
+   * Parses tags, trims inputs, and calls the appropriate callbacks.
+   * Closes the modal after successful submission.
    */
-  function handleSave() {
+  function handleSubmit() {
     let bookId: string | null = null;
 
     // Handle book selection logic
@@ -81,39 +78,25 @@ export default function EditBookmarkModal({
       bookId = selectedBookId;
     }
 
-    // Parse and convert tags back to tag objects
+    // Parse and clean tags
     const tags = tagString
       .split(";")
       .map((s) => s.trim())
-      .filter(Boolean)
-      .map((label) => ({
-        label,
-        type: "user" as const
-      }));
+      .filter(Boolean);
 
-    // Create updated bookmark object
-    const updated: RichBookmark = {
-      ...bookmark,
-      title: title.trim(),
-      url: url.trim(),
-      bookId,
-      tags,
-      updatedAt: Date.now()
-    };
-
-    // Save and close
-    onSave(updated);
+    // Add the bookmark with trimmed title and URL
+    onAddPage(title.trim(), url.trim(), bookId, tags);
     onClose();
   }
 
   // Validation: require title and URL
-  const canSave = title.trim() && url.trim();
+  const canSubmit = title.trim() && url.trim();
 
   return (
     // Modal overlay
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
       <Card className="w-full max-w-md bg-emperor-surfaceStrong p-6">
-        <h2 className="text-lg font-semibold mb-4">Edit Page</h2>
+        <h2 className="text-lg font-semibold mb-4">Add Page</h2>
 
         {/* Form fields */}
         <div className="space-y-4">
@@ -123,13 +106,18 @@ export default function EditBookmarkModal({
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              placeholder="Page title"
             />
           </div>
 
           {/* URL input */}
           <div>
             <label className="block text-sm font-medium mb-1">URL</label>
-            <Input value={url} onChange={(e) => setUrl(e.target.value)} />
+            <Input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://example.com"
+            />
           </div>
 
           {/* Tags input */}
@@ -140,6 +128,7 @@ export default function EditBookmarkModal({
             <Input
               value={tagString}
               onChange={(e) => setTagString(e.target.value)}
+              placeholder="work; research; ai"
             />
           </div>
 
@@ -181,8 +170,8 @@ export default function EditBookmarkModal({
           <Button variant="subtle" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={!canSave}>
-            Save
+          <Button onClick={handleSubmit} disabled={!canSubmit}>
+            Add Page
           </Button>
         </div>
       </Card>

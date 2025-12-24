@@ -3,13 +3,39 @@ import { Input } from "./ui/Input";
 import { Button } from "./ui/Button";
 import { ThemeMode } from "../hooks/useTheme";
 
+/**
+ * SettingsScreen.tsx
+ * ------------------
+ * The settings screen component for application configuration.
+ * Provides options for theme selection, edit mode preference, and data backup/restore.
+ * Accessible through the sidebar settings button.
+ */
+
+/**
+ * SettingsProps Interface
+ * -----------------------
+ * Defines the properties for the SettingsScreen component.
+ */
 type SettingsProps = {
+  /** Current theme mode */
   theme: ThemeMode;
+  /** Function to update theme mode */
   setTheme: (t: ThemeMode) => void;
+  /** Current edit mode preference */
   editMode: "modal" | "inline";
+  /** Function to update edit mode preference */
   setEditMode: (m: "modal" | "inline") => void;
 };
 
+/**
+ * SettingsScreen Component
+ * ------------------------
+ * Renders the application settings interface with theme and edit mode controls.
+ * Also includes placeholder for backup/restore functionality.
+ *
+ * @param props - The component props
+ * @returns JSX element for the settings screen
+ */
 export default function SettingsScreen({
   theme,
   setTheme,
@@ -21,7 +47,7 @@ export default function SettingsScreen({
       <h2 className="text-xl font-semibold mb-4">Settings</h2>
 
       <div className="space-y-4">
-        {/* Theme */}
+        {/* Theme selection */}
         <div>
           <label className="block text-sm mb-1">Theme</label>
           <select
@@ -35,7 +61,7 @@ export default function SettingsScreen({
           </select>
         </div>
 
-        {/* Edit Mode */}
+        {/* Edit mode preference */}
         <div>
           <label className="block text-sm mb-1">Edit mode</label>
           <select
@@ -48,7 +74,7 @@ export default function SettingsScreen({
           </select>
         </div>
 
-        {/* Backup / Restore */}
+        {/* Backup/Restore section - placeholder for future implementation */}
         <div>
           <label className="block text-sm mb-1">Backup / Restore</label>
           <div className="flex gap-2">
