@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react";
-import { Bookmark, generateTags, importBookmarksFromHtml } from "@smart/core";
+import {
+  Bookmark,
+  BookmarkTag,
+  generateTags,
+  importBookmarksFromHtml
+} from "@smart/core";
 import { loadBookmarks, saveBookmarks } from "../storage/webStorage";
 
 export type RichBookmark = Bookmark & {
   pinned?: boolean;
+  faviconUrl?: string;
 };
 
 export function useBookmarks() {
@@ -32,8 +38,14 @@ export function useBookmarks() {
   }
 
   async function addBookmark(title: string, url: string) {
-    const autoTags = await generateTags(title, url);
+    const autoLabels = await generateTags(title, url);
     const now = Date.now();
+
+    const autoTags: BookmarkTag[] = autoLabels.map((label) => ({
+      label,
+      // make sure this matches BookmarkTag["type"] from @smart/core
+      type: "auto" as BookmarkTag["type"]
+    }));
 
     const newBookmark: RichBookmark = {
       id: crypto.randomUUID(),
@@ -42,7 +54,7 @@ export function useBookmarks() {
       createdAt: now,
       updatedAt: now,
       faviconUrl: computeFavicon(url),
-      tags: autoTags.map((label) => ({ label, type: "auto" })),
+      tags: autoTags,
       source: "manual",
       pinned: false
     };
@@ -51,8 +63,14 @@ export function useBookmarks() {
   }
 
   async function importHtml(text: string) {
-    const imported = (await importBookmarksFromHtml(text)) as RichBookmark[];
-    persist([...bookmarks, ...imported]);
+    const imported = (await importBookmarksFromHtml(text)) as Bookmark[];
+    // imported are plain Bookmark; treat them as RichBookmark (no pinned/fav yet)
+    const withRich: RichBookmark[] = imported.map((b) => ({
+      ...b,
+      faviconUrl: b.faviconUrl ?? computeFavicon(b.url),
+      pinned: (b as RichBookmark).pinned ?? false
+    }));
+    persist([...bookmarks, ...withRich]);
   }
 
   function deleteBookmark(id: string) {
@@ -67,39 +85,41 @@ export function useBookmarks() {
     );
   }
 
-  async function retag(id: string) {
-    const target = bookmarks.find((b) => b.id === id);
-    if (!target) return;
+  async function retag(updated: RichBookmark) {
+    const autoLabels = await generateTags(updated.title, updated.url);
 
-    const autoTags = await generateTags(target.title, target.url);
+    const autoTags: BookmarkTag[] = autoLabels.map((label) => ({
+      label,
+      type: "auto" as BookmarkTag["type"]
+    }));
 
-    persist(
-      bookmarks.map((b) =>
-        b.id === id
-          ? {
-              ...b,
-              tags: autoTags.map((label) => ({ label, type: "auto" })),
-              updatedAt: Date.now()
-            }
-          : b
-      )
+    const next: RichBookmark[] = bookmarks.map((b) =>
+      b.id === updated.id
+        ? {
+            ...b,
+            ...updated,
+            tags: autoTags,
+            updatedAt: Date.now()
+          }
+        : b
     );
+
+    persist(next);
   }
 
-  function updateBookmark(id: string, title: string, url: string) {
-    persist(
-      bookmarks.map((b) =>
-        b.id === id
-          ? {
-              ...b,
-              title,
-              url,
-              updatedAt: Date.now(),
-              faviconUrl: computeFavicon(url)
-            }
-          : b
-      )
+  function updateBookmark(updated: RichBookmark) {
+    const next: RichBookmark[] = bookmarks.map((b) =>
+      b.id === updated.id
+        ? {
+            ...b,
+            ...updated,
+            updatedAt: Date.now(),
+            faviconUrl: computeFavicon(updated.url)
+          }
+        : b
     );
+
+    persist(next);
   }
 
   return {

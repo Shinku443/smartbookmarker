@@ -1,22 +1,7 @@
 export default function Layout({ sidebar, children }: any) {
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#f5f5f7",
-        padding: 24,
-        fontFamily: "system-ui"
-      }}
-    >
-      <div
-        style={{
-          maxWidth: 1100,
-          margin: "0 auto",
-          display: "grid",
-          gridTemplateColumns: "280px 1fr",
-          gap: 24
-        }}
-      >
+    <div className="min-h-screen bg-emperor-bg text-emperor-text p-6 font-sans">
+      <div className="max-w-6xl mx-auto grid grid-cols-[280px_1fr] gap-6">
         {sidebar}
         <main>{children}</main>
       </div>

@@ -1,0 +1,11 @@
+{
+  "name": "@emperor/cli",
+  "version": "0.1.0",
+  "bin": {
+    "emperor": "index.ts"
+  },
+  "scripts": {
+    "dev": "bun index.ts"
+  },
+  "dependencies": {}
+}

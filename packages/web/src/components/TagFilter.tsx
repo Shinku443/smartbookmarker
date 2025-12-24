@@ -1,14 +1,13 @@
 export default function TagFilter({ tags, activeTag, setActiveTag }: any) {
   return (
-    <div>
+    <div className="flex flex-wrap gap-2">
       <button
         onClick={() => setActiveTag(null)}
-        style={{
-          padding: "3px 8px",
-          marginRight: 6,
-          background: activeTag === null ? "#111" : "#eee",
-          color: activeTag === null ? "#fff" : "#111"
-        }}
+        className={`px-3 py-1 rounded-pill text-sm ${
+          activeTag === null
+            ? "bg-emperor-primary text-black"
+            : "bg-emperor-surfaceStrong text-emperor-text"
+        }`}
       >
         All
       </button>
@@ -17,12 +16,11 @@ export default function TagFilter({ tags, activeTag, setActiveTag }: any) {
         <button
           key={tag}
           onClick={() => setActiveTag(tag === activeTag ? null : tag)}
-          style={{
-            padding: "3px 8px",
-            marginRight: 6,
-            background: activeTag === tag ? "#111" : "#eee",
-            color: activeTag === tag ? "#fff" : "#111"
-          }}
+          className={`px-3 py-1 rounded-pill text-sm ${
+            activeTag === tag
+              ? "bg-emperor-primary text-black"
+              : "bg-emperor-surfaceStrong text-emperor-text"
+          }`}
         >
           #{tag}
         </button>

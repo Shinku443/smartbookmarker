@@ -1,0 +1,42 @@
+/* DARK THEME (default) */
+:root {
+  --emperor-bg: #020617;
+  --emperor-surface: #0f172a;
+  --emperor-surface-strong: #111827;
+  --emperor-primary: #fbbf24;
+  --emperor-primary-strong: #f59e0b;
+  --emperor-text: #e5e7eb;
+  --emperor-muted: #9ca3af;
+  --emperor-border: #1f2937;
+  --emperor-info: #38bdf8;
+  --emperor-success: #22c55e;
+  --emperor-danger: #ef4444;
+}
+
+/* LIGHT THEME */
+.light {
+  --emperor-bg: #f8fafc;
+  --emperor-surface: #ffffff;
+  --emperor-surface-strong: #f1f5f9;
+  --emperor-primary: #d97706;
+  --emperor-primary-strong: #b45309;
+  --emperor-text: #0f172a;
+  --emperor-muted: #64748b;
+  --emperor-border: #cbd5e1;
+  --emperor-info: #0284c7;
+  --emperor-success: #16a34a;
+  --emperor-danger: #dc2626;
+}
+
+/* Smooth theme transitions */
+.theme-transition {
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-emperor-bg text-emperor-text font-sans;
+}
