@@ -1,21 +1,32 @@
 import React from "react";
+import clsx from "clsx";
 
 /**
  * TagChip.tsx
  * ------------
- * A small, clickable chip component for displaying individual tags.
- * Shows tag labels with a hash prefix and provides hover interactions.
- * Used in bookmark cards and tag filter interfaces.
+ * Small, clickable chip component for rendering a tag label.
+ *
+ * Used in:
+ *   - BookmarkCard (to show a bookmark's tags)
+ *   - Any tag‑based filtering UI where a "pill" is appropriate
+ *
+ * Supports:
+ *   - Active state styling (when the tag is currently selected as a filter)
+ *   - Click handler for toggling filters or triggering actions
  */
 
 /**
  * TagChipProps Interface
  * ----------------------
- * Defines the properties for the TagChip component.
+ * Defines the properties accepted by TagChip.
  */
 type TagChipProps = {
-  /** The tag label to display */
+  /** Tag label to display (without hash prefix) */
   label: string;
+
+  /** Whether this tag is currently active/selected */
+  active?: boolean;
+
   /** Optional click handler for tag interactions */
   onClick?: () => void;
 };
@@ -23,28 +34,19 @@ type TagChipProps = {
 /**
  * TagChip Component
  * -----------------
- * Renders a small, rounded chip displaying a tag with hash prefix.
- * Supports click interactions for filtering or other tag-related actions.
- *
- * @param props - The tag chip props
- * @returns JSX element for the tag chip
+ * Renders a small, rounded chip with a hash prefix in front of the label.
+ * Applies different styles when active vs inactive.
  */
-export function TagChip({ label, onClick }: TagChipProps) {
+export function TagChip({ label, active = false, onClick }: TagChipProps) {
   return (
     <span
       onClick={onClick}
-      className="
-        inline-flex items-center
-        bg-emperor-surfaceStrong
-        text-emperor-text
-        border border-emperor-border
-        px-2 py-0.5
-        rounded-full
-        text-xs
-        cursor-pointer
-        hover:bg-emperor-surface
-        transition
-      "
+      className={clsx(
+        "inline-flex items-center px-2 py-0.5 rounded-full text-xs border cursor-pointer transition",
+        active
+          ? "bg-emperor-accent text-white border-emperor-accent"
+          : "bg-emperor-surfaceStrong text-emperor-text border-emperor-border hover:bg-emperor-surface"
+      )}
     >
       #{label}
     </span>

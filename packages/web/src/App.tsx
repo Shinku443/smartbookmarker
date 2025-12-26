@@ -8,19 +8,17 @@ import AddBookmarkModal from "./components/AddBookmarkModal";
 import SettingsScreen from "./components/SettingsScreen";
 import BookManagerModal from "./components/BookManagerModal";
 
-import {
-  useBookmarks,
-  RichBookmark,
-  Book
-} from "./hooks/useBookmarks";
+import { useBookmarks } from "./hooks/useBookmarks";
+import type { RichBookmark } from "./models/RichBookmark";
+import type { Book } from "./models/Book";
 
 import { useTheme } from "./hooks/useTheme";
 
 /**
  * App.tsx
  * --------
- * This is the top‑level orchestrator for the entire Emperor Library UI.
- * It wires together:
+ * Top‑level orchestrator for the Emperor Library UI.
+ * Wires together:
  *   - Books (groups)
  *   - Pages (bookmarks)
  *   - Drag‑and‑drop ordering
@@ -29,26 +27,18 @@ import { useTheme } from "./hooks/useTheme";
  *   - Add/Edit modals
  *   - Book Manager modal
  *   - Sidebar navigation
- *
- * The goal is to keep this file declarative and readable:
- *   - All business logic lives in useBookmarks()
- *   - All UI logic lives in components
- *   - App.tsx only coordinates state + handlers
  */
 
 export default function App() {
   /**
    * useBookmarks()
    * --------------
-   * This hook is the "database" of the app.
-   * It provides:
+   * Central data source for the app:
    *   - bookmarks (pages)
    *   - books (groups)
-   *   - rootOrder (ordering for ungrouped pages)
-   *   - pinnedOrder (ordering for pinned pages)
-   *   - CRUD for pages
-   *   - CRUD for books
-   *   - ordering functions for drag‑and‑drop
+   *   - rootOrder (ungrouped ordering)
+   *   - pinnedOrder (pinned ordering)
+   *   - CRUD + ordering helpers
    */
   const {
     bookmarks,
@@ -64,8 +54,8 @@ export default function App() {
     importHtml,
 
     addBook,
-    renameBook,     // ⭐ FIXED: now imported
-    deleteBook,     // ⭐ FIXED: now imported
+    renameBook,
+    deleteBook,
 
     assignBookmarkToBook,
     reorderBookPages,
@@ -73,26 +63,23 @@ export default function App() {
     reorderPinned
   } = useBookmarks();
 
-  /**
-   * Theme system (dark/light/system)
-   */
   const { theme, setTheme } = useTheme();
 
   /**
-   * UI State
+   * UI state
    * --------
-   * search          → text filter
-   * activeTag       → tag filter
-   * activeBookId    → book filter
-   * selectedIds     → multi‑select
-   * showSettings    → settings screen
-   * editMode        → inline vs modal editing
-   * editingBookmark → currently edited page
-   * showAddModal    → add page modal
+   * search        → text query
+   * activeTags    → tag filters (multi‑select, OR logic)
+   * activeBookId  → current book context
+   * selectedIds   → multi‑select for bulk actions
+   * showSettings  → settings screen
+   * editMode      → inline vs modal editing
+   * editingBookmark → currently edited page (modal)
+   * showAddModal  → add page modal
    * showBookManager → book manager modal
    */
   const [search, setSearch] = useState("");
-  const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [activeTags, setActiveTags] = useState<string[]>([]);
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showSettings, setShowSettings] = useState(false);
@@ -105,8 +92,8 @@ export default function App() {
   /**
    * tags
    * ----
-   * Extracts all unique tag labels from all pages.
-   * Used by Sidebar for tag filtering.
+   * Collect all unique tag labels across pages.
+   * Used by Sidebar for tag filtering controls.
    */
   const tags = useMemo(() => {
     const map = new Map<string, number>();
@@ -123,9 +110,10 @@ export default function App() {
    * --------------
    * Produces a list of pages sorted according to:
    *   - activeBookId → use that book's order array
-   *   - no book selected → use rootOrder
+   *   - no book selected → use rootOrder (ungrouped first)
    *
-   * This ensures drag‑and‑drop reordering is reflected in the UI.
+   * This list is the ordered, unfiltered source of truth for the main list.
+   * Filtering (search/tags/book) happens inside BookmarkList.
    */
   const sortedByOrder = useMemo(() => {
     const idToBookmark = new Map(bookmarks.map((b) => [b.id, b]));
@@ -136,33 +124,33 @@ export default function App() {
       const book = books.find((b) => b.id === activeBookId);
       const order = book?.order ?? [];
 
-      // Add pages in the book's order
+      // Ordered pages in this book
       for (const id of order) {
         const b = idToBookmark.get(id);
         if (b) result.push(b);
       }
 
-      // Add any pages in this book that aren't in the order array yet
+      // Any pages in this book not yet in order
       for (const b of bookmarks) {
         if (b.bookId === activeBookId && !order.includes(b.id)) {
           result.push(b);
         }
       }
     } else {
-      // Sorting ungrouped pages (root)
+      // Root (ungrouped) ordering
       for (const id of rootOrder) {
         const b = idToBookmark.get(id);
         if (b && !b.bookId) result.push(b);
       }
 
-      // Add any ungrouped pages not in rootOrder yet
+      // Any ungrouped pages not yet in rootOrder
       for (const b of bookmarks) {
         if (!b.bookId && !rootOrder.includes(b.id)) {
           result.push(b);
         }
       }
 
-      // Add grouped pages (not sorted here)
+      // Grouped pages (not sorted here; they can appear in their own views)
       for (const b of bookmarks) {
         if (b.bookId) result.push(b);
       }
@@ -170,40 +158,6 @@ export default function App() {
 
     return result;
   }, [bookmarks, books, rootOrder, activeBookId]);
-
-  /**
-   * filtered
-   * --------
-   * Applies:
-   *   - search filter
-   *   - tag filter
-   *   - book filter
-   */
-  const filtered = useMemo(() => {
-    let list = sortedByOrder;
-
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(
-        (b) =>
-          b.title.toLowerCase().includes(q) ||
-          b.url.toLowerCase().includes(q) ||
-          b.tags?.some((t) => t.label.toLowerCase().includes(q))
-      );
-    }
-
-    if (activeTag) {
-      list = list.filter((b) =>
-        b.tags?.some((t) => t.label === activeTag)
-      );
-    }
-
-    if (activeBookId) {
-      list = list.filter((b) => b.bookId === activeBookId);
-    }
-
-    return list;
-  }, [sortedByOrder, search, activeTag, activeBookId]);
 
   /**
    * sortedPinned
@@ -216,13 +170,12 @@ export default function App() {
     const idToBookmark = new Map(pinned.map((b) => [b.id, b]));
     const result: RichBookmark[] = [];
 
-    // Add in pinnedOrder
     for (const id of pinnedOrder) {
       const b = idToBookmark.get(id);
       if (b) result.push(b);
     }
 
-    // Add any pinned pages not in pinnedOrder yet
+    // Any pinned pages not yet in pinnedOrder
     for (const b of pinned) {
       if (!pinnedOrder.includes(b.id)) result.push(b);
     }
@@ -230,22 +183,12 @@ export default function App() {
     return result;
   }, [bookmarks, pinnedOrder]);
 
-  /**
-   * handleImport
-   * ------------
-   * Imports HTML bookmarks (Netscape format).
-   */
   function handleImport(e: any) {
     const file = e.target.files?.[0];
     if (!file) return;
     file.text().then(importHtml);
   }
 
-  /**
-   * handleExport
-   * ------------
-   * Exports the entire library (pages + books + ordering) as JSON.
-   */
   function handleExport() {
     const data = JSON.stringify(
       { bookmarks, books, rootOrder, pinnedOrder },
@@ -261,20 +204,10 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
-  /**
-   * handleInlineSave
-   * ----------------
-   * Saves inline edits (title + URL).
-   */
   function handleInlineSave(updated: RichBookmark) {
     updateBookmark(updated);
   }
 
-  /**
-   * handleRetag
-   * -----------
-   * Adds a user tag to a page.
-   */
   function handleRetag(b: RichBookmark, tag?: string) {
     const newTag = tag ?? prompt("Tag to apply?");
     if (!newTag) return;
@@ -294,37 +227,31 @@ export default function App() {
   /**
    * handleTagClick
    * --------------
-   * Clicking a tag chip filters by that tag.
+   * Toggle a tag in the activeTags array (multi‑select, OR logic).
+   * Used by both Sidebar tag chips and BookmarkCard tag chips.
    */
   function handleTagClick(tag: string) {
-    setActiveTag(tag);
+    setActiveTags((prev) =>
+      prev.includes(tag)
+        ? prev.filter((t) => t !== tag)
+        : [...prev, tag]
+    );
   }
 
   /**
    * handleReorderMain
    * ------------------
-   * Called when drag‑and‑drop reorders pages inside:
-   *   - a book (activeBookId != null)
-   *   - root (activeBookId == null)
+   * Reorders pages either inside a book or in the root context.
+   * The IDs array always comes from the ordered, unfiltered list.
    */
   function handleReorderMain(ids: string[]) {
     reorderBookPages(activeBookId, ids);
   }
 
-  /**
-   * handleReorderPinned
-   * --------------------
-   * Called when pinned pages are reordered.
-   */
   function handleReorderPinned(ids: string[]) {
     reorderPinned(ids);
   }
 
-  /**
-   * handleMoveToBook
-   * -----------------
-   * Moves a page to a different book (or to root).
-   */
   function handleMoveToBook(id: string, bookId: string | null) {
     assignBookmarkToBook(id, bookId);
   }
@@ -356,8 +283,8 @@ export default function App() {
             search={search}
             setSearch={setSearch}
             tags={tags}
-            activeTag={activeTag}
-            setActiveTag={setActiveTag}
+            activeTags={activeTags}
+            setActiveTags={setActiveTags}
             books={books}
             activeBookId={activeBookId}
             setActiveBookId={setActiveBookId}
@@ -385,6 +312,7 @@ export default function App() {
               selectedIds={selectedIds}
               setSelectedIds={setSelectedIds}
               editMode={editMode}
+              activeTags={activeTags}
               onDelete={deleteBookmark}
               onPin={togglePin}
               onRetag={handleRetag}
@@ -394,13 +322,16 @@ export default function App() {
               onReorderPinned={handleReorderPinned}
             />
 
-            {/* Main list (sortable) */}
+            {/* Main list (sortable, filtering handled inside) */}
             <BookmarkList
-              bookmarks={filtered}
+              bookmarks={sortedByOrder}
               books={books}
               selectedIds={selectedIds}
               setSelectedIds={setSelectedIds}
               editMode={editMode}
+              search={search}
+              activeTags={activeTags}
+              activeBookId={activeBookId}
               onDelete={deleteBookmark}
               onPin={togglePin}
               onRetag={handleRetag}
@@ -414,7 +345,7 @@ export default function App() {
         )}
       </Layout>
 
-      {/* Edit Page Modal */}
+      {/* Edit Page Modal (modal mode only) */}
       {editingBookmark && editMode === "modal" && (
         <EditBookmarkModal
           bookmark={editingBookmark}

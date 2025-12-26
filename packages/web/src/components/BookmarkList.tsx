@@ -1,70 +1,91 @@
+import React, { useState, useMemo } from "react";
 import {
   DndContext,
   closestCenter,
-  DragEndEvent
+  DragEndEvent,
+  DragStartEvent,
+  DragCancelEvent,
+  DragOverlay
 } from "@dnd-kit/core";
 import {
   SortableContext,
   verticalListSortingStrategy,
   arrayMove
 } from "@dnd-kit/sortable";
+import Fuse from "fuse.js";
+
 import BookmarkCard from "./BookmarkCard";
 import MultiSelectToolbar from "./MultiSelectToolbar";
-import { RichBookmark } from "../models/RichBookmark";
-import { Book } from "../models/Book";
+import type { RichBookmark } from "../models/RichBookmark";
+import type { Book } from "../models/Book";
 
 /**
  * BookmarkList.tsx
  * -----------------
- * A container component that manages a sortable list of bookmark cards.
- * Provides multi-select functionality, bulk operations, and drag-and-drop reordering.
- * Integrates with @dnd-kit for smooth drag interactions and coordinates
- * between individual cards and bulk selection tools.
+ * Main scrollable list of bookmark cards with:
+ *
+ *   - Drag‑and‑drop reordering (via @dnd-kit)
+ *   - Multi‑select toolbar (delete, tag, pin, move to book)
+ *   - Fuzzy search (Fuse.js)
+ *   - Multi‑tag filtering (OR logic)
+ *   - Optional book scoping (activeBookId)
+ *   - DragOverlay for smooth drag pickup
+ *
+ * DESIGN NOTE
+ * -----------
+ * App.tsx passes an *ordered, unfiltered* array of bookmarks into this component.
+ * All filtering (search, tags, book) happens INSIDE BookmarkList.
+ *
+ * This guarantees that:
+ *   - Reordering always uses the full, ordered list of IDs
+ *   - Filtering never breaks drag‑and‑drop
+ *   - The DragOverlay always matches the correct bookmark
  */
 
 /**
  * Props Interface
  * ---------------
- * Defines all properties for the BookmarkList component.
+ * Defines the inputs required by BookmarkList.
  */
 type Props = {
-  /** Array of bookmarks to display in the list */
+  /** Ordered, unfiltered list of bookmarks (source of truth for DnD) */
   bookmarks: RichBookmark[];
-  /** Array of all books for move operations */
+
+  /** All books (for "move to book" multi‑select action) */
   books: Book[];
+
   /** IDs of currently selected bookmarks */
   selectedIds: string[];
-  /** Function to update selected IDs */
+  /** Updates the selected IDs array */
   setSelectedIds: (ids: string[]) => void;
-  /** Edit mode for individual cards */
+
+  /** Edit mode for bookmark cards */
   editMode: "modal" | "inline";
-  /** Callback to delete a bookmark */
+
+  /** CRUD + action callbacks for individual bookmarks */
   onDelete: (id: string) => void;
-  /** Callback to toggle pin status */
   onPin: (id: string) => void;
-  /** Callback to retag a bookmark */
   onRetag: (b: RichBookmark) => void;
-  /** Callback to request editing a bookmark */
   onEditRequest: (b: RichBookmark) => void;
-  /** Callback to save inline edits */
   onSaveInline: (b: RichBookmark) => void;
-  /** Callback when a tag is clicked */
   onTagClick: (tag: string) => void;
-  /** Callback to reorder bookmarks */
+
+  /** Called when drag‑and‑drop creates a new global order */
   onReorder: (ids: string[]) => void;
-  /** Callback to move bookmark to a different book */
+
+  /** Moves a bookmark to a different book (or back to root) */
   onMoveToBook: (id: string, bookId: string | null) => void;
+
+  /** Search query from App.tsx (used for fuzzy search) */
+  search: string;
+
+  /** Active tag filters (multi‑select, OR logic) */
+  activeTags: string[];
+
+  /** Active book context (null = show all books) */
+  activeBookId: string | null;
 };
 
-/**
- * BookmarkList Component
- * ----------------------
- * Renders a sortable list of bookmark cards with multi-select capabilities.
- * Handles bulk operations like tagging, pinning, and moving multiple bookmarks.
- *
- * @param props - The component props
- * @returns JSX element containing the bookmark list and toolbar
- */
 export default function BookmarkList({
   bookmarks,
   books,
@@ -73,47 +94,45 @@ export default function BookmarkList({
   editMode,
   onReorder,
   onMoveToBook,
+  search,
+  activeTags,
+  activeBookId,
   ...actions
 }: Props) {
   /**
+   * activeId
+   * --------
+   * ID of the bookmark currently being dragged.
+   * Used by DragOverlay to render a visual clone.
+   */
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  /**
    * toggleSelected
    * ---------------
-   * Toggles the selection state of a single bookmark.
-   * Adds to selection if not selected, removes if already selected.
-   *
-   * @param id - The ID of the bookmark to toggle
+   * Adds/removes a bookmark from the multi‑select selection.
    */
   function toggleSelected(id: string) {
     setSelectedIds(
       selectedIds.includes(id)
-        ? selectedIds.filter((x) => x !== id) // Remove from selection
-        : [...selectedIds, id] // Add to selection
+        ? selectedIds.filter((x) => x !== id)
+        : [...selectedIds, id]
     );
   }
 
   /**
-   * selectAll
-   * ----------
-   * Selects all bookmarks in the current list.
+   * Multi‑select helper actions
+   * ---------------------------
+   * These are wired into the MultiSelectToolbar.
    */
   function selectAll() {
     setSelectedIds(bookmarks.map((b) => b.id));
   }
 
-  /**
-   * clearAll
-   * ---------
-   * Clears all selections.
-   */
   function clearAll() {
     setSelectedIds([]);
   }
 
-  /**
-   * deleteSelected
-   * ---------------
-   * Deletes all currently selected bookmarks and clears the selection.
-   */
   function deleteSelected() {
     for (const id of selectedIds) {
       actions.onDelete(id);
@@ -121,12 +140,6 @@ export default function BookmarkList({
     setSelectedIds([]);
   }
 
-  /**
-   * tagSelected
-   * ------------
-   * Applies a user-entered tag to all selected bookmarks.
-   * Prompts for tag input and updates each selected bookmark.
-   */
   function tagSelected() {
     const tag = prompt("Tag to apply to selected pages?");
     if (!tag) return;
@@ -135,42 +148,28 @@ export default function BookmarkList({
       if (selectedIds.includes(b.id)) {
         actions.onRetag({
           ...b,
-          tags: [...(b.tags ?? []), { label: tag, type: "user" as const }],
+          tags: [
+            ...(b.tags ?? []),
+            { label: tag, type: "user" as const }
+          ],
           updatedAt: Date.now()
         });
       }
     }
   }
 
-  /**
-   * pinSelected
-   * ------------
-   * Pins all selected bookmarks.
-   */
   function pinSelected() {
     for (const id of selectedIds) {
       actions.onPin(id);
     }
   }
 
-  /**
-   * unpinSelected
-   * --------------
-   * Unpins all selected bookmarks (same as pinSelected since it's a toggle).
-   */
   function unpinSelected() {
     for (const id of selectedIds) {
-      actions.onPin(id); // Toggle pin status
+      actions.onPin(id);
     }
   }
 
-  /**
-   * moveSelectedToBook
-   * -------------------
-   * Moves all selected bookmarks to the specified book (or to root if null).
-   *
-   * @param bookId - The target book ID, or null for root
-   */
   function moveSelectedToBook(bookId: string | null) {
     for (const id of selectedIds) {
       onMoveToBook(id, bookId);
@@ -178,17 +177,66 @@ export default function BookmarkList({
   }
 
   /**
-   * handleDragEnd
-   * --------------
-   * Handles the completion of a drag operation by calculating new order.
-   * Uses arrayMove to reorder bookmark IDs and notifies parent component.
+   * filteredBookmarks
+   * -----------------
+   * Applies:
+   *   1. Fuzzy search (Fuse.js) across title, URL, and tags
+   *   2. Multi‑tag filtering (OR logic)
+   *   3. Book context filter (activeBookId)
    *
-   * @param event - The drag end event from @dnd-kit
+   * NOTE:
+   *   The input list is already ordered. Filtering never touches the
+   *   underlying ordering arrays; it only affects what's rendered.
    */
+  const filteredBookmarks = useMemo(() => {
+    let list = bookmarks;
+
+    // 1. Fuzzy search
+    const query = search.trim();
+    if (query) {
+      const fuse = new Fuse(list, {
+        keys: ["title", "url", "tags.label"],
+        threshold: 0.35
+      });
+      const results = fuse.search(query);
+      list = results.map((r) => r.item);
+    }
+
+    // 2. Multi‑tag filter (OR logic)
+    if (activeTags.length > 0) {
+      list = list.filter((b) =>
+        b.tags?.some((t: { label: string }) =>
+          activeTags.includes(t.label)
+        )
+      );
+    }
+
+    // 3. Book filter
+    if (activeBookId) {
+      list = list.filter((b) => b.bookId === activeBookId);
+    }
+
+    return list;
+  }, [bookmarks, search, activeTags, activeBookId]);
+
+  /**
+   * Drag lifecycle
+   * --------------
+   * - handleDragStart  → store activeId
+   * - handleDragEnd    → compute new order based on full ordered list
+   * - handleDragCancel → clear activeId
+   */
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(event.active.id as string);
+  }
+
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
+    setActiveId(null);
+
     if (!over || active.id === over.id) return;
 
+    // Reordering MUST use the full ordered list, not the filtered subset.
     const ids = bookmarks.map((b) => b.id);
     const oldIndex = ids.indexOf(active.id as string);
     const newIndex = ids.indexOf(over.id as string);
@@ -198,12 +246,32 @@ export default function BookmarkList({
     onReorder(newOrder);
   }
 
-  // Extract IDs for sortable context
+  function handleDragCancel(_event: DragCancelEvent) {
+    setActiveId(null);
+  }
+
+  /**
+   * ids
+   * ---
+   * The IDs used by SortableContext.
+   * Always derived from the full ordered list.
+   */
   const ids = bookmarks.map((b) => b.id);
+
+  /**
+   * activeBookmark
+   * ---------------
+   * Used by DragOverlay to render a visual clone while dragging.
+   */
+  const activeBookmark =
+    activeId != null ? bookmarks.find((b) => b.id === activeId) : null;
 
   return (
     <div>
-      {/* Multi-select toolbar for bulk operations */}
+      {/* ------------------------------------------------------------------ */}
+      {/* Multi‑Select Toolbar                                               */}
+      {/* Controls bulk operations on selected bookmarks.                    */}
+      {/* ------------------------------------------------------------------ */}
       <MultiSelectToolbar
         selectedCount={selectedIds.length}
         totalCount={bookmarks.length}
@@ -217,14 +285,20 @@ export default function BookmarkList({
         onMoveSelectedToBook={moveSelectedToBook}
       />
 
-      {/* Drag-and-drop context for the bookmark list */}
+      {/* ------------------------------------------------------------------ */}
+      {/* Drag‑and‑Drop Context                                              */}
+      {/* Wraps the sortable list and drag overlay.                          */}
+      {/* ------------------------------------------------------------------ */}
       <DndContext
         collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
       >
+        {/* Sortable list container */}
         <SortableContext items={ids} strategy={verticalListSortingStrategy}>
           <ul className="space-y-4">
-            {bookmarks.map((b) => (
+            {filteredBookmarks.map((b) => (
               <li key={b.id}>
                 <BookmarkCard
                   b={b}
@@ -232,12 +306,36 @@ export default function BookmarkList({
                   selected={selectedIds.includes(b.id)}
                   onToggleSelected={toggleSelected}
                   editMode={editMode}
+                  activeTags={activeTags}
                   {...actions}
                 />
               </li>
             ))}
           </ul>
         </SortableContext>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* DragOverlay                                                       */}
+        {/* Lightweight clone of the active card for snappy drag pickup.      */}
+        {/* ------------------------------------------------------------------ */}
+        <DragOverlay>
+          {activeBookmark ? (
+            <BookmarkCard
+              b={activeBookmark}
+              books={books}
+              selected={false}
+              onToggleSelected={() => {}}
+              editMode="inline"
+              activeTags={activeTags}
+              onEditRequest={() => {}}
+              onSaveInline={() => {}}
+              onDelete={() => {}}
+              onPin={() => {}}
+              onRetag={() => {}}
+              onTagClick={() => {}}
+            />
+          ) : null}
+        </DragOverlay>
       </DndContext>
     </div>
   );

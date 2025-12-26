@@ -6,76 +6,80 @@ import type { Book } from "../models/Book";
 /**
  * Sidebar.tsx
  * ------------
- * The Sidebar component serves as the primary navigation and control panel for the Emperor Library application.
- * It provides:
- *   - Search functionality for filtering bookmarks
- *   - Book (group) management and selection
- *   - Tag filtering for bookmarks
- *   - Import/Export capabilities for data management
- *   - Access to settings and book manager modals
+ * The Sidebar component serves as the primary navigation and control panel
+ * for the Emperor Library application. It provides:
  *
- * The sidebar is designed to be collapsible and responsive, allowing users to efficiently navigate
- * and organize their bookmark collections. It integrates tightly with the main App component
- * through props that handle state changes and user interactions.
+ *   - Search functionality for filtering bookmarks
+ *   - Book (group) navigation and selection
+ *   - Multi‑tag filtering (OR logic)
+ *   - Import/Export tools for data management
+ *   - Access to settings and the Book Manager modal
+ *
+ * The sidebar is intentionally stateless: all state is managed by App.tsx.
+ * This keeps the sidebar focused on rendering and user interaction only.
  */
 
 /**
  * Props Interface
  * ---------------
  * Defines the properties required by the Sidebar component.
- * These props connect the sidebar to the application's state management and event handlers.
+ * These props connect the sidebar to the application's state and event handlers.
  */
 type Props = {
-  /** Callback to open the add bookmark modal */
+  /** Opens the "Add Page" modal */
   onAdd: () => void;
 
-  /** Current search query string for filtering bookmarks */
+  /** Current search query string */
   search: string;
-  /** Function to update the search query */
+  /** Updates the search query */
   setSearch: (v: string) => void;
 
-  /** Array of all available tag labels for filtering */
+  /** All unique tag labels extracted from bookmarks */
   tags: string[];
-  /** Currently active tag filter (null means no tag filter) */
-  activeTag: string | null;
-  /** Function to set the active tag filter */
-  setActiveTag: (tag: string | null) => void;
+  /** Currently active tag filters (multi‑select, OR logic) */
+  activeTags: string[];
+  /** Updates the active tag filters array */
+  setActiveTags: (tags: string[]) => void;
 
-  /** Array of all books (groups) in the library */
+  /** All books (groups) in the library */
   books: Book[];
-  /** Currently active book ID for filtering (null means show all pages) */
+  /** Currently active book ID (null = "All Pages") */
   activeBookId: string | null;
-  /** Function to set the active book filter */
+  /** Sets the active book filter */
   setActiveBookId: (id: string | null) => void;
-  /** Function to create a new book with the given name */
+  /** Creates a new book with the given name */
   onCreateBook: (name: string) => void;
 
-  /** Handler for importing HTML bookmark files */
+  /** Imports bookmarks from an HTML file */
   onImport: (e: any) => void;
-  /** Handler for exporting the library as JSON */
+  /** Exports the entire library as JSON */
   onExport: () => void;
-  /** Callback to open the settings screen */
+
+  /** Opens the Settings screen */
   onOpenSettings: () => void;
-  /** Callback to open the book manager modal */
+  /** Opens the Book Manager modal */
   onOpenBookManager: () => void;
 };
 
 /**
  * Sidebar Component
  * -----------------
- * Renders the sidebar with search, book navigation, tag filters, and utility actions.
- * The component is stateless and relies on props for all data and interactions.
+ * Renders the sidebar UI with:
+ *   - Search bar
+ *   - Book navigation
+ *   - Tag filters (multi‑select)
+ *   - Import/Export tools
+ *   - Settings access
  *
- * @param props - The properties object containing all necessary data and handlers
- * @returns JSX element representing the sidebar
+ * The component is fully controlled by props and contains no internal state.
  */
 export default function Sidebar({
   onAdd,
   search,
   setSearch,
   tags,
-  activeTag,
-  setActiveTag,
+  activeTags,
+  setActiveTags,
   books,
   activeBookId,
   setActiveBookId,
@@ -88,22 +92,35 @@ export default function Sidebar({
   /**
    * handleNewBook
    * --------------
-   * Prompts the user for a new book name and creates the book if a valid name is provided.
-   * This function handles the creation of new book groups for organizing bookmarks.
-   *
-   * Uses the browser's native prompt() for simplicity, though in a production app
-   * this might be replaced with a more sophisticated modal dialog.
+   * Prompts the user for a new book name and creates it.
+   * Uses a simple prompt() for now; can be replaced with a modal later.
    */
   function handleNewBook() {
     const name = prompt("New book name?");
-    if (!name) return; // Exit if user cancels or provides empty input
-    onCreateBook(name.trim()); // Trim whitespace and create the book
+    if (!name) return;
+    onCreateBook(name.trim());
+  }
+
+  /**
+   * toggleTag
+   * ---------
+   * Toggles a tag in the activeTags array.
+   * Multi‑select, OR‑logic filtering is handled in BookmarkList.
+   */
+  function toggleTag(tag: string) {
+    setActiveTags(
+      activeTags.includes(tag)
+        ? activeTags.filter((t) => t !== tag)
+        : [...activeTags, tag]
+    );
   }
 
   return (
     <div className="h-full flex flex-col bg-emperor-sidebar border-r border-emperor-border">
-      {/* Header Section */}
-      {/* Contains the title, add button, and search input */}
+      {/* ------------------------------------------------------------------ */}
+      {/* Header Section                                                     */}
+      {/* Contains the title, "Add Page" button, and search input.           */}
+      {/* ------------------------------------------------------------------ */}
       <div className="p-4 border-b border-emperor-border">
         <div className="flex justify-between items-center mb-3">
           <h1 className="text-lg font-semibold">Library</h1>
@@ -119,11 +136,14 @@ export default function Sidebar({
         />
       </div>
 
-      {/* Main Content Area */}
-      {/* Scrollable section containing books, tags, and import/export */}
+      {/* ------------------------------------------------------------------ */}
+      {/* Main Content Area                                                  */}
+      {/* Scrollable region containing Books, Tags, and Import/Export tools. */}
+      {/* ------------------------------------------------------------------ */}
       <div className="flex-1 overflow-y-auto py-4 space-y-6">
-        {/* Books Section */}
-        {/* Displays all books with options to select, manage, or create new ones */}
+        {/* ----------------------------- */}
+        {/* Books Section                */}
+        {/* ----------------------------- */}
         <div className="px-4">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-emperor-muted text-xs uppercase tracking-wide">
@@ -138,26 +158,26 @@ export default function Sidebar({
           </div>
 
           <div className="space-y-1">
-            {/* "All Pages" button - shows bookmarks from all books */}
+            {/* "All Pages" button */}
             <button
               className={`w-full text-left text-sm px-2 py-1 rounded-card ${
                 activeBookId === null
-                  ? "bg-emperor-surfaceStrong" // Highlighted when no book is selected
-                  : "hover:bg-emperor-surface" // Hover effect for inactive state
+                  ? "bg-emperor-surfaceStrong"
+                  : "hover:bg-emperor-surface"
               }`}
               onClick={() => setActiveBookId(null)}
             >
               All Pages
             </button>
 
-            {/* Individual book buttons - one for each book in the library */}
+            {/* Individual book buttons */}
             {books.map((b) => (
               <button
                 key={b.id}
                 className={`w-full text-left text-sm px-2 py-1 rounded-card ${
                   activeBookId === b.id
-                    ? "bg-emperor-surfaceStrong" // Highlighted when this book is active
-                    : "hover:bg-emperor-surface" // Hover effect for inactive state
+                    ? "bg-emperor-surfaceStrong"
+                    : "hover:bg-emperor-surface"
                 }`}
                 onClick={() => setActiveBookId(b.id)}
               >
@@ -165,7 +185,7 @@ export default function Sidebar({
               </button>
             ))}
 
-            {/* "New Book" button - triggers creation of a new book group */}
+            {/* Create new book */}
             <button
               className="w-full text-left text-sm px-2 py-1 rounded-card text-emperor-muted hover:bg-emperor-surface"
               onClick={handleNewBook}
@@ -175,44 +195,50 @@ export default function Sidebar({
           </div>
         </div>
 
-        {/* Tags Section */}
-        {/* Displays tag chips for filtering bookmarks by tags */}
+        {/* ----------------------------- */}
+        {/* Tags Section (multi‑select)   */}
+        {/* ----------------------------- */}
         <div className="px-4">
           <h3 className="text-emperor-muted text-xs uppercase tracking-wide mb-2">
             Tags
           </h3>
+
           <div className="flex flex-wrap gap-2">
-            {tags.map((tag) => (
-              <button
-                key={tag}
-                className={`text-xs px-2 py-1 rounded-full border ${
-                  activeTag === tag
-                    ? "bg-emperor-surfaceStrong border-emperor-border" // Active tag styling
-                    : "border-emperor-border hover:bg-emperor-surface" // Inactive tag styling with hover
-                }`}
-                onClick={() =>
-                  setActiveTag(activeTag === tag ? null : tag) // Toggle tag filter
-                }
-              >
-                #{tag}
-              </button>
-            ))}
+            {tags.map((tag) => {
+              const isActive = activeTags.includes(tag);
+              return (
+                <button
+                  key={tag}
+                  className={`text-xs px-2 py-1 rounded-full border ${
+                    isActive
+                      ? "bg-emperor-surfaceStrong border-emperor-border"
+                      : "border-emperor-border hover:bg-emperor-surface"
+                  }`}
+                  onClick={() => toggleTag(tag)}
+                >
+                  #{tag}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* Import/Export Section */}
-        {/* Provides tools for data import and export */}
+        {/* ----------------------------- */}
+        {/* Import / Export Section       */}
+        {/* ----------------------------- */}
         <div className="px-4">
           <h3 className="text-emperor-muted text-xs uppercase tracking-wide mb-2">
             Import / Export
           </h3>
+
           <div className="flex flex-col gap-2">
-            {/* HTML Import - allows importing bookmarks from HTML files */}
+            {/* HTML Import */}
             <label className="text-sm">
               <span className="mr-2">Import HTML</span>
               <input type="file" accept=".html" onChange={onImport} />
             </label>
-            {/* JSON Export - exports the entire library as JSON */}
+
+            {/* JSON Export */}
             <Button size="sm" variant="subtle" onClick={onExport}>
               Export JSON
             </Button>
@@ -220,8 +246,10 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* Footer Section */}
-      {/* Contains the settings button */}
+      {/* ------------------------------------------------------------------ */}
+      {/* Footer Section                                                     */}
+      {/* Contains the Settings button.                                      */}
+      {/* ------------------------------------------------------------------ */}
       <div className="p-4 border-t border-emperor-border">
         <Button size="sm" variant="subtle" onClick={onOpenSettings}>
           Settings

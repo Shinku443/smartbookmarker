@@ -11,6 +11,7 @@
     "tailwindcss": "^4.1.18"
   },
   "dependencies": {
-    "clsx": "^2.1.1"
+    "clsx": "^2.1.1",
+    "fuse.js": "^7.1.0"
   }
 }

@@ -1,67 +1,78 @@
+import React, { useState } from "react";
 import {
   DndContext,
   closestCenter,
-  DragEndEvent
+  DragEndEvent,
+  DragStartEvent,
+  DragCancelEvent,
+  DragOverlay
 } from "@dnd-kit/core";
 import {
   SortableContext,
   verticalListSortingStrategy,
   arrayMove
 } from "@dnd-kit/sortable";
+
 import BookmarkCard from "./BookmarkCard";
-import { RichBookmark } from "../models/RichBookmark";
-import { Book } from "../models/Book";
+import type { RichBookmark } from "../models/RichBookmark";
+import type { Book } from "../models/Book";
 
 /**
  * PinnedBookmarks.tsx
  * -------------------
- * A specialized component for displaying and managing pinned bookmarks.
- * Provides drag-and-drop reordering for pinned items and integrates with
- * multi-select functionality. Only renders when there are pinned bookmarks.
+ * Renders the "Pinned" section at the top of the library.
+ *
+ * Features:
+ *   - Displays only bookmarks with `pinned: true`
+ *   - Supports drag‑and‑drop reordering (separate from main list)
+ *   - Uses its own ordering array (`pinnedOrder`) managed by useBookmarks()
+ *   - Supports multi‑select (checkboxes)
+ *   - Supports inline/modal editing, retagging, pin/unpin, delete
+ *   - Uses DragOverlay for smooth drag pickup
+ *
+ * DESIGN NOTE
+ * -----------
+ * Pinned bookmarks have their own ordering array because they are displayed
+ * independently of book grouping and root ordering. This component receives
+ * the already‑sorted pinned list from App.tsx and only handles reordering
+ * within that subset.
  */
 
 /**
  * Props Interface
  * ---------------
- * Defines the properties for the PinnedBookmarks component.
+ * Defines all inputs required by PinnedBookmarks.
  */
 type Props = {
-  /** Array of all bookmarks (filtered for pinned ones internally) */
+  /** The full list of bookmarks already filtered to pinned items by App.tsx */
   bookmarks: RichBookmark[];
-  /** Array of books for display purposes */
+
+  /** All books (for showing membership inside BookmarkCard) */
   books: Book[];
-  /** IDs of currently selected bookmarks */
+
+  /** IDs of currently selected bookmarks (multi‑select) */
   selectedIds: string[];
-  /** Function to update selected IDs */
+  /** Updates the selected IDs array */
   setSelectedIds: (ids: string[]) => void;
-  /** Edit mode for bookmark cards */
+
+  /** Inline vs modal editing mode */
   editMode: "modal" | "inline";
-  /** Callback to delete a bookmark */
+
+  /** CRUD + action callbacks for individual bookmarks */
   onDelete: (id: string) => void;
-  /** Callback to toggle pin status */
   onPin: (id: string) => void;
-  /** Callback to retag a bookmark */
   onRetag: (b: RichBookmark) => void;
-  /** Callback to request editing a bookmark */
   onEditRequest: (b: RichBookmark) => void;
-  /** Callback to save inline edits */
   onSaveInline: (b: RichBookmark) => void;
-  /** Callback when a tag is clicked */
   onTagClick: (tag: string) => void;
-  /** Callback to reorder pinned bookmarks */
+
+  /** Called when pinned bookmarks are reordered */
   onReorderPinned: (ids: string[]) => void;
+
+  /** Active tag filters (used to highlight matching tag chips) */
+  activeTags: string[];
 };
 
-/**
- * PinnedBookmarks Component
- * -------------------------
- * Renders a section for pinned bookmarks with drag-and-drop reordering.
- * Filters bookmarks for pinned items and provides sortable functionality.
- * Returns null if no bookmarks are pinned.
- *
- * @param props - The component props
- * @returns JSX element for pinned bookmarks section or null
- */
 export default function PinnedBookmarks({
   bookmarks,
   books,
@@ -69,63 +80,103 @@ export default function PinnedBookmarks({
   setSelectedIds,
   editMode,
   onReorderPinned,
+  activeTags,
   ...actions
 }: Props) {
-  // Filter for only pinned bookmarks
+  /**
+   * pinned
+   * ------
+   * Extract only pinned bookmarks.
+   * App.tsx already sorts them using pinnedOrder.
+   */
   const pinned = bookmarks.filter((b) => b.pinned);
-
-  // Don't render if no pinned bookmarks
   if (pinned.length === 0) return null;
+
+  /**
+   * activeId
+   * --------
+   * ID of the bookmark currently being dragged.
+   * Used by DragOverlay to render a visual clone.
+   */
+  const [activeId, setActiveId] = useState<string | null>(null);
 
   /**
    * toggleSelected
    * ---------------
-   * Toggles the selection state of a pinned bookmark.
-   * Adds to selection if not selected, removes if already selected.
-   *
-   * @param id - The ID of the bookmark to toggle
+   * Adds/removes a bookmark from the multi‑select selection.
    */
   function toggleSelected(id: string) {
     setSelectedIds(
       selectedIds.includes(id)
-        ? selectedIds.filter((x) => x !== id) // Remove from selection
-        : [...selectedIds, id] // Add to selection
+        ? selectedIds.filter((x) => x !== id)
+        : [...selectedIds, id]
     );
   }
 
   /**
-   * handleDragEnd
+   * Drag Lifecycle
    * --------------
-   * Handles the completion of a drag operation for pinned bookmarks.
-   * Calculates new order and notifies parent component.
-   *
-   * @param event - The drag end event from @dnd-kit
+   * handleDragStart  → store activeId
+   * handleDragEnd    → compute new pinned order
+   * handleDragCancel → clear activeId
    */
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(event.active.id as string);
+  }
+
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
+    setActiveId(null);
+
     if (!over || active.id === over.id) return;
 
+    // Reorder within the pinned subset
     const ids = pinned.map((b) => b.id);
     const oldIndex = ids.indexOf(active.id as string);
     const newIndex = ids.indexOf(over.id as string);
     if (oldIndex === -1 || newIndex === -1) return;
 
-    const newOrder = arrayMove(ids, oldIndex, newIndex);
-    onReorderPinned(newOrder);
+    onReorderPinned(arrayMove(ids, oldIndex, newIndex));
   }
 
-  // Extract IDs for sortable context
+  function handleDragCancel(_event: DragCancelEvent) {
+    setActiveId(null);
+  }
+
+  /**
+   * ids
+   * ---
+   * The IDs used by SortableContext.
+   * Always derived from the pinned subset.
+   */
   const ids = pinned.map((b) => b.id);
+
+  /**
+   * activeBookmark
+   * ---------------
+   * Used by DragOverlay to render a lightweight clone.
+   */
+  const activeBookmark =
+    activeId != null ? pinned.find((b) => b.id === activeId) : null;
 
   return (
     <section className="mb-8">
+      {/* ------------------------------------------------------------------ */}
+      {/* Section Header                                                     */}
+      {/* ------------------------------------------------------------------ */}
       <h2 className="text-lg font-semibold mb-3">Pinned</h2>
 
-      {/* Drag-and-drop context for pinned bookmarks */}
+      {/* ------------------------------------------------------------------ */}
+      {/* Drag‑and‑Drop Context                                              */}
+      {/* Wraps the sortable pinned list and drag overlay.                   */}
+      {/* ------------------------------------------------------------------ */}
       <DndContext
         collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
       >
+        {/* Sortable list container */}
         <SortableContext items={ids} strategy={verticalListSortingStrategy}>
           <ul className="space-y-4">
             {pinned.map((b) => (
@@ -136,12 +187,36 @@ export default function PinnedBookmarks({
                   selected={selectedIds.includes(b.id)}
                   onToggleSelected={toggleSelected}
                   editMode={editMode}
+                  activeTags={activeTags}
                   {...actions}
                 />
               </li>
             ))}
           </ul>
         </SortableContext>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* DragOverlay                                                       */}
+        {/* Lightweight clone for smooth drag pickup.                         */}
+        {/* ------------------------------------------------------------------ */}
+        <DragOverlay>
+          {activeBookmark ? (
+            <BookmarkCard
+              b={activeBookmark}
+              books={books}
+              selected={false}
+              onToggleSelected={() => {}}
+              editMode="inline"
+              activeTags={activeTags}
+              onEditRequest={() => {}}
+              onSaveInline={() => {}}
+              onDelete={() => {}}
+              onPin={() => {}}
+              onRetag={() => {}}
+              onTagClick={() => {}}
+            />
+          ) : null}
+        </DragOverlay>
       </DndContext>
     </section>
   );
