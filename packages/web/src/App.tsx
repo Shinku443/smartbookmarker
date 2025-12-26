@@ -18,22 +18,42 @@ import { useTheme } from "./hooks/useTheme";
  * App.tsx
  * --------
  * Top‑level orchestrator for the Emperor Library UI.
- * Wires together:
- *   - Books (groups)
- *   - Pages (bookmarks)
- *   - Drag‑and‑drop ordering
- *   - Pinned pages
- *   - Multi‑select actions
- *   - Add/Edit modals
- *   - Book Manager modal
- *   - Sidebar navigation
+ *
+ * Responsibilities:
+ *   - Owns all application‑level state
+ *   - Connects useBookmarks() domain logic to UI components
+ *   - Wires up:
+ *       • Books (groups)
+ *       • Pages (bookmarks)
+ *       • Drag‑and‑drop ordering
+ *       • Pinned pages
+ *       • Multi‑select actions
+ *       • Add/Edit modals
+ *       • Book Manager modal
+ *       • Sidebar navigation
+ *
+ * ARCHITECTURE NOTE
+ * -----------------
+ * App.tsx provides:
+ *   - Ordered, unfiltered lists (sortedByOrder, sortedPinned)
+ *   - Global state (search, activeTags, activeBookId)
+ *   - CRUD + ordering handlers
+ *
+ * BookmarkList handles:
+ *   - Filtering (search, tags, book)
+ *   - Drag‑and‑drop reordering
+ *
+ * PinnedBookmarks handles:
+ *   - Independent pinned ordering
+ *
+ * This separation keeps App.tsx declarative and predictable.
  */
 
 export default function App() {
   /**
    * useBookmarks()
    * --------------
-   * Central data source for the app:
+   * Central domain data source:
    *   - bookmarks (pages)
    *   - books (groups)
    *   - rootOrder (ungrouped ordering)
@@ -63,6 +83,11 @@ export default function App() {
     reorderPinned
   } = useBookmarks();
 
+  /**
+   * Theme system
+   * ------------
+   * Controls dark/light/system mode and edit mode preference.
+   */
   const { theme, setTheme } = useTheme();
 
   /**
@@ -109,48 +134,46 @@ export default function App() {
    * sortedByOrder
    * --------------
    * Produces a list of pages sorted according to:
+   *
    *   - activeBookId → use that book's order array
    *   - no book selected → use rootOrder (ungrouped first)
    *
    * This list is the ordered, unfiltered source of truth for the main list.
+   *
+   * IMPORTANT:
    * Filtering (search/tags/book) happens inside BookmarkList.
+   * This ensures drag‑and‑drop always uses the full ordered list.
    */
   const sortedByOrder = useMemo(() => {
     const idToBookmark = new Map(bookmarks.map((b) => [b.id, b]));
     const result: RichBookmark[] = [];
 
     if (activeBookId) {
-      // Sorting inside a specific book
       const book = books.find((b) => b.id === activeBookId);
       const order = book?.order ?? [];
 
-      // Ordered pages in this book
       for (const id of order) {
         const b = idToBookmark.get(id);
         if (b) result.push(b);
       }
 
-      // Any pages in this book not yet in order
       for (const b of bookmarks) {
         if (b.bookId === activeBookId && !order.includes(b.id)) {
           result.push(b);
         }
       }
     } else {
-      // Root (ungrouped) ordering
       for (const id of rootOrder) {
         const b = idToBookmark.get(id);
         if (b && !b.bookId) result.push(b);
       }
 
-      // Any ungrouped pages not yet in rootOrder
       for (const b of bookmarks) {
         if (!b.bookId && !rootOrder.includes(b.id)) {
           result.push(b);
         }
       }
 
-      // Grouped pages (not sorted here; they can appear in their own views)
       for (const b of bookmarks) {
         if (b.bookId) result.push(b);
       }
@@ -164,6 +187,8 @@ export default function App() {
    * -------------
    * Pinned pages have their own ordering array (pinnedOrder).
    * This produces a sorted list for the Pinned section.
+   *
+   * PinnedBookmarks handles its own drag‑and‑drop reordering.
    */
   const sortedPinned = useMemo(() => {
     const pinned = bookmarks.filter((b) => b.pinned);
@@ -175,7 +200,6 @@ export default function App() {
       if (b) result.push(b);
     }
 
-    // Any pinned pages not yet in pinnedOrder
     for (const b of pinned) {
       if (!pinnedOrder.includes(b.id)) result.push(b);
     }
@@ -183,6 +207,12 @@ export default function App() {
     return result;
   }, [bookmarks, pinnedOrder]);
 
+  /**
+   * Import / Export helpers
+   * -----------------------
+   * handleImport → imports Netscape HTML bookmarks.
+   * handleExport → exports all data as JSON.
+   */
   function handleImport(e: any) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -204,10 +234,21 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
+  /**
+   * handleInlineSave
+   * ----------------
+   * Saves inline bookmark edits.
+   */
   function handleInlineSave(updated: RichBookmark) {
     updateBookmark(updated);
   }
 
+  /**
+   * handleRetag
+   * -----------
+   * Applies a new user tag to a given bookmark.
+   * Uses prompt() for now; could be replaced with a richer UI later.
+   */
   function handleRetag(b: RichBookmark, tag?: string) {
     const newTag = tag ?? prompt("Tag to apply?");
     if (!newTag) return;
@@ -305,7 +346,7 @@ export default function App() {
           />
         ) : (
           <>
-            {/* Pinned section (sortable) */}
+            {/* Pinned section (sortable, independent ordering) */}
             <PinnedBookmarks
               bookmarks={sortedPinned}
               books={books}
@@ -322,7 +363,7 @@ export default function App() {
               onReorderPinned={handleReorderPinned}
             />
 
-            {/* Main list (sortable, filtering handled inside) */}
+            {/* Main list (sortable, filtering handled inside BookmarkList) */}
             <BookmarkList
               bookmarks={sortedByOrder}
               books={books}
