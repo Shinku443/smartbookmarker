@@ -10,4 +10,5 @@ export type Book = {
   createdAt: number;
   updatedAt: number;
   order?: string[]; // ordered list of page IDs
+  parentBookId: string | null;
 };

@@ -136,7 +136,8 @@ export function useBookmarks() {
       name,
       createdAt: now,
       updatedAt: now,
-      order: []
+      order: [],
+      parentBookId: null
     };
 
     const nextBooks = [...books, newBook];
