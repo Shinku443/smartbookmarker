@@ -128,6 +128,10 @@ function InlineCreateInput({
  *   - Droppable as a book target
  *   - Expand/collapse if it has children
  *   - Inline sub‑book creation
+ *
+ * IMPORTANT:
+ *   The draggable wrapper only wraps the label area,
+ *   NOT the expand/collapse button, so expand/collapse works normally.
  */
 type BookTreeItemProps = {
   node: TreeNode;
@@ -182,54 +186,49 @@ function DraggableBookItem({
     : undefined;
 
   return (
-    <div
-      ref={setDropRef}
-      className={`group relative transition-colors ${
-        isDragging ? "opacity-50" : ""
-      } ${
-        isOver && !isDraggingBookmark
-          ? "outline outline-2 outline-emperor-accent"
-          : ""
-      }`}
-    >
+  <div
+    ref={setDropRef}
+    className={`group relative transition-colors ${
+      isDragging ? "opacity-50" : ""
+    }`}
+  >
+    <div className="flex items-center py-1">
       <div
-        ref={setDragRef}
-        {...listeners}
-        {...attributes}
-        style={style}
-        className="flex items-center py-1"
-        // Do NOT stop pointer events here; inner buttons can stop as needed
+        style={{ paddingLeft: `${node.depth * 16}px` }}
+        className={`flex items-center flex-1 rounded-card transition-colors ${
+          isOver && !isDraggingBookmark
+            ? "bg-emperor-surfaceStrong outline outline-2 outline-emperor-accent"
+            : ""
+        }`}
       >
-        {/* Depth indent + guide line */}
-        <div style={{ paddingLeft: `${node.depth * 16}px` }} className="flex items-center flex-1">
-          {node.depth > 0 && (
-            <div
-              className="absolute left-0 top-0 bottom-0 w-px bg-emperor-border"
-              style={{ left: `${(node.depth - 1) * 16 + 8}px` }}
-            />
-          )}
+        {/* Expand/collapse control */}
+        {hasChildren ? (
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleExpanded(node.id);
+            }}
+            className="w-4 h-4 flex items-center justify-center text-emperor-muted hover:text-emperor-text mr-1"
+          >
+            {isExpanded ? (
+              <ChevronDownIcon className="w-3 h-3" />
+            ) : (
+              <ChevronRightIcon className="w-3 h-3" />
+            )}
+          </button>
+        ) : (
+          <div className="w-4 h-4 mr-1" />
+        )}
 
-          {/* Expand/collapse control */}
-          {hasChildren ? (
-            <button
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleExpanded(node.id);
-              }}
-              className="w-4 h-4 flex items-center justify-center text-emperor-muted hover:text-emperor-text mr-1"
-            >
-              {isExpanded ? (
-                <ChevronDownIcon className="w-3 h-3" />
-              ) : (
-                <ChevronRightIcon className="w-3 h-3" />
-              )}
-            </button>
-          ) : (
-            <div className="w-4 h-4 mr-1" />
-          )}
-
-          {/* Label button */}
+        {/* Draggable label */}
+        <div
+          ref={setDragRef}
+          {...listeners}
+          {...attributes}
+          style={style}
+          className="flex-1 cursor-move"
+        >
           <button
             onMouseDown={(e) => e.stopPropagation()}
             className={`flex-1 text-left text-sm px-2 py-1 rounded-card transition-colors ${
@@ -244,22 +243,24 @@ function DraggableBookItem({
           >
             {node.name}
           </button>
-
-          {/* Sub‑book add button (hidden when inline creating) */}
-          {inlineCreateFor !== node.id && (
-            <button
-              onMouseDown={(e) => e.stopPropagation()}
-              className="opacity-0 group-hover:opacity-100 w-4 h-4 flex items-center justify-center text-emperor-muted hover:text-emperor-text ml-1 transition-opacity"
-              onClick={(e) => {
-                e.stopPropagation();
-                setInlineCreateFor(node.id);
-              }}
-            >
-              <PlusIcon className="w-3 h-3" />
-            </button>
-          )}
         </div>
+
+        {/* + button */}
+        {inlineCreateFor !== node.id && (
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            className="opacity-0 group-hover:opacity-100 w-4 h-4 flex items-center justify-center text-emperor-muted hover:text-emperor-text ml-1 transition-opacity"
+            onClick={(e) => {
+              e.stopPropagation();
+              setInlineCreateFor(node.id);
+            }}
+          >
+            <PlusIcon className="w-3 h-3" />
+          </button>
+        )}
       </div>
+    </div>
+
 
       {/* Inline sub‑book creation replaces the + button */}
       {inlineCreateFor === node.id && (
@@ -306,9 +307,12 @@ function DraggableBookItem({
  * ------------------
  * Renders:
  *   - "All Pages" root button (explicit drop target: id = "library-root")
- *   - Outer tree drop zone for books (id = "library-root-zone")
  *   - Nested book tree
  *   - Root‑level inline creation (replacing the “+ New Book” entry)
+ *
+ * NOTE:
+ *   The experimental outer root zone droppable ("library-root-zone") has been
+ *   removed to ensure per‑book droppables receive drag‑over events correctly.
  */
 export default function BookTree({
   books,
@@ -321,11 +325,6 @@ export default function BookTree({
 }: BookTreeProps) {
   const [expandedBooks, setExpandedBooks] = useState<Set<string>>(new Set());
   const [inlineCreateFor, setInlineCreateFor] = useState<string | null>(null);
-
-  // Outer root zone (used for moving books to root when dragged "outside")
-  const { setNodeRef: setRootZoneRef, isOver: isRootZoneOver } = useDroppable({
-    id: "library-root-zone"
-  });
 
   // Explicit "All Pages" drop target (used for bookmarks + books)
   const { setNodeRef: setRootRef, isOver: isRootOver } = useDroppable({
@@ -352,12 +351,7 @@ export default function BookTree({
   };
 
   return (
-    <div
-      ref={setRootZoneRef}
-      className={`space-y-1 p-1 rounded-card transition-colors ${
-        isRootZoneOver ? "outline outline-2 outline-emperor-accent" : ""
-      }`}
-    >
+    <div className="space-y-1 p-1 rounded-card">
       {/* All Pages (explicit root drop target) */}
       <div
         ref={setRootRef}
