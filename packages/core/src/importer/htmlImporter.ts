@@ -9,7 +9,7 @@ export async function importBookmarksFromHtml(html: string): Promise<Bookmark[]>
   const results: Bookmark[] = [];
 
   for (const a of links) {
-    const url = a.href;
+    const url = (a as HTMLAnchorElement).href;
     const title = a.textContent || url;
     const autoTags = await generateTags(title, url);
 
@@ -21,7 +21,8 @@ export async function importBookmarksFromHtml(html: string): Promise<Bookmark[]>
       updatedAt: Date.now(),
       faviconUrl: `https://www.google.com/s2/favicons?domain=${url}`,
       tags: autoTags.map(label => ({ label, type: "auto" })),
-      source: "imported"
+      source: "imported",
+      bookId: null
     });
   }
 

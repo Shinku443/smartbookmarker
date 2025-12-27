@@ -7,9 +7,8 @@ import {
   DragCancelEvent,
   DragOverlay
 } from "@dnd-kit/core";
-import {
-  arrayMove
-} from "@dnd-kit/sortable";
+import { arrayMove } from "@dnd-kit/sortable";
+
 import Layout from "./components/Layout";
 import Sidebar from "./components/Sidebar";
 import BookmarkList from "./components/BookmarkList";
@@ -52,13 +51,22 @@ import { useTheme } from "./hooks/useTheme";
  *   - CRUD + ordering handlers
  *
  * BookmarkList handles:
- *   - Filtering (search, tags, book)
+ *   - Filtering (search/tags/book)
  *   - Drag‑and‑drop reordering
  *
  * PinnedBookmarks handles:
  *   - Independent pinned ordering
  *
- * This separation keeps App.tsx declarative and predictable.
+ * BookTree handles:
+ *   - Inline creation of books/sub‑books
+ *   - Nested drag‑and‑drop
+ *   - Expand/collapse
+ *
+ * Sidebar handles:
+ *   - Navigation
+ *   - Tag filters
+ *   - Import/Export
+ *   - Opening Book Manager modal
  */
 
 export default function App() {
@@ -122,16 +130,33 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [editMode, setEditMode] = useState<"modal" | "inline">("modal");
-  const [editingBookmark, setEditingBookmark] =
-    useState<RichBookmark | null>(null);
+  const [editingBookmark, setEditingBookmark] = useState<RichBookmark | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+
+  // ⭐ Book Manager modal (the only modal for book creation)
   const [showBookManager, setShowBookManager] = useState(false);
+
   const [isDraggingBookmark, setIsDraggingBookmark] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
 
   /**
-   * activeBookmark
-   * ---------------
+   * Inline book creation (BookTree only)
+   * ------------------------------------
+   * BookTree handles inline creation of books/sub‑books.
+   * This function directly calls addBook() with no modal.
+   */
+  function handleInlineCreateBook(parentId: string | null, name: string) {
+    addBook(name, parentId);
+  }
+
+  /**
+   * Modal book creation (Sidebar only)
+   * ----------------------------------
+   * Sidebar "Manage" button opens Book Manager modal.
+   */
+  function handleModalCreateBook() {
+    setShowBookManager(true);
+  }
 
   /**
    * tags
@@ -266,7 +291,6 @@ export default function App() {
    * handleRetag
    * -----------
    * Applies a new user tag to a given bookmark.
-   * Uses prompt() for now; could be replaced with a richer UI later.
    */
   function handleRetag(b: RichBookmark, tag?: string) {
     const newTag = tag ?? prompt("Tag to apply?");
@@ -274,10 +298,7 @@ export default function App() {
 
     const updated: RichBookmark = {
       ...b,
-      tags: [
-        ...(b.tags ?? []),
-        { label: newTag, type: "user" as const }
-      ],
+      tags: [...(b.tags ?? []), { label: newTag, type: "user" }],
       updatedAt: Date.now()
     };
 
@@ -288,7 +309,6 @@ export default function App() {
    * handleTagClick
    * --------------
    * Toggle a tag in the activeTags array (multi‑select, OR logic).
-   * Used by both Sidebar tag chips and BookmarkCard tag chips.
    */
   function handleTagClick(tag: string) {
     setActiveTags((prev) =>
@@ -324,15 +344,14 @@ export default function App() {
   function handleDragStart(event: DragStartEvent) {
     const draggedId = event.active.id as string;
     setActiveId(draggedId);
-    
-    // Check if the dragged item is a bookmark (not a book)
+
     const isDraggedItemABook = books.some(b => b.id === draggedId);
     setIsDraggingBookmark(!isDraggedItemABook);
   }
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
-    
+
     setActiveId(null);
     setIsDraggingBookmark(false);
 
@@ -341,53 +360,54 @@ export default function App() {
     const draggedId = active.id as string;
     const targetId = over.id as string;
 
-    // Check if the dragged item is a book or a bookmark
-    const isDraggedItemABook = books.some(b => b.id === draggedId);
+    const isDraggedBook = books.some(b => b.id === draggedId);
 
-    if (isDraggedItemABook) {
-      // Handle book-to-book drag
-      if (active.id === over.id) return;
+    // -----------------------------
+    // Book drag handling
+    // -----------------------------
+    if (isDraggedBook) {
+      if (draggedId === targetId) return;
 
-      const draggedBookId = draggedId;
-
-      // If dropping on "All Pages", move to root
-      if (targetId === "all-pages") {
-        moveBook(draggedBookId, null);
+      // Dropped on root-level containers (All Pages row or outer zone)
+      if (targetId === "library-root" || targetId === "library-root-zone") {
+        moveBook(draggedId, null);
         return;
       }
 
-      // Find the target book
+      // Dropped on another book
       const targetBook = books.find(b => b.id === targetId);
-      if (targetBook) {
-        moveBook(draggedBookId, targetId);
-      }
-    } else {
-      // Handle bookmark-to-book drop
-      // Check if dropping on a book (any ID that's not a bookmark ID)
-      const isTargetABook = books.some(b => b.id === targetId) || targetId === "all-pages";
-      
-      if (isTargetABook) {
-        const bookmarkId = draggedId;
-        const bookId = targetId === "all-pages" ? null : targetId;
-        assignBookmarkToBook(bookmarkId, bookId);
-        return;
-      }
+      if (!targetBook) return;
 
-      // Handle bookmark reordering
-      if (active.id === over.id) return;
-
-      // Reordering MUST use the full ordered list, not the filtered subset.
-      const ids = sortedByOrder.map((b) => b.id);
-      const oldIndex = ids.indexOf(active.id as string);
-      const newIndex = ids.indexOf(over.id as string);
-      if (oldIndex === -1 || newIndex === -1) return;
-
-      const newOrder = arrayMove(ids, oldIndex, newIndex);
-      handleReorderMain(newOrder);
+      moveBook(draggedId, targetBook.id);
+      return;
     }
+
+    // -----------------------------
+    // Bookmark drag handling
+    // -----------------------------
+    // Explicit drop on "All Pages" → move bookmark to root
+    if (targetId === "library-root") {
+      assignBookmarkToBook(draggedId, null);
+      return;
+    }
+
+    const isTargetABook = books.some(b => b.id === targetId);
+    if (isTargetABook) {
+      assignBookmarkToBook(draggedId, targetId);
+      return;
+    }
+
+    // Reordering bookmarks
+    const ids = sortedByOrder.map((b) => b.id);
+    const oldIndex = ids.indexOf(draggedId);
+    const newIndex = ids.indexOf(targetId);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const newOrder = arrayMove(ids, oldIndex, newIndex);
+    handleReorderMain(newOrder);
   }
 
-  function handleDragCancel(_event: DragCancelEvent) {
+  function handleDragCancel() {
     setActiveId(null);
     setIsDraggingBookmark(false);
   }
@@ -437,13 +457,13 @@ export default function App() {
             books={books}
             activeBookId={activeBookId}
             setActiveBookId={setActiveBookId}
-            onCreateBook={addBook}
+            onCreateBook={handleInlineCreateBook}
             onMoveBook={moveBook}
             onBookmarkDrop={assignBookmarkToBook}
             onImport={handleImport}
             onExport={handleExport}
             onOpenSettings={() => setShowSettings(true)}
-            onOpenBookManager={() => setShowBookManager(true)}
+            onOpenBookManager={handleModalCreateBook} // ⭐ Sidebar → Book Manager modal
             isDraggingBookmark={isDraggingBookmark}
           />
         }
@@ -457,7 +477,7 @@ export default function App() {
           />
         ) : (
           <>
-            {/* Pinned section (sortable, independent ordering) */}
+            {/* Pinned section */}
             <PinnedBookmarks
               bookmarks={sortedPinned}
               books={books}
@@ -481,7 +501,7 @@ export default function App() {
               onBookClick={setActiveBookId}
             />
 
-            {/* Main list (sortable, filtering handled inside BookmarkList) */}
+            {/* Main list */}
             <BookmarkList
               bookmarks={sortedByOrder}
               books={books}
@@ -504,7 +524,7 @@ export default function App() {
         )}
       </Layout>
 
-      {/* Edit Page Modal (modal mode only) */}
+      {/* Edit Page Modal */}
       {editingBookmark && editMode === "modal" && (
         <EditBookmarkModal
           bookmark={editingBookmark}
@@ -532,15 +552,15 @@ export default function App() {
           onReorderBooks={reorderBooks}
           onRenameBook={renameBook}
           onDeleteBook={deleteBook}
+          onCreateBook={addBook} // ⭐ Modal creation only
           onClose={() => setShowBookManager(false)}
         />
       )}
 
-      {/* DragOverlay for bookmark dragging */}
+      {/* DragOverlay */}
       <DragOverlay>
         {activeBookmark ? (
           <div className="rotate-3 opacity-90">
-            {/* Simple overlay - could be enhanced with BookmarkCard if needed */}
             <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg border max-w-md">
               <h3 className="font-medium text-sm truncate">{activeBookmark.title}</h3>
               <p className="text-xs text-gray-500 truncate">{activeBookmark.url}</p>

@@ -48,8 +48,9 @@ type Props = {
   activeBookId: string | null;
   /** Sets the active book filter */
   setActiveBookId: (id: string | null) => void;
-  /** Creates a new book with the given name and optional parent */
-  onCreateBook: (name: string, parentId?: string | null) => void;
+
+  /** Creates a new book inline (BookTree → App.tsx → addBook) */
+  onCreateBook: (parentId: string | null, name: string) => void;
   /** Moves a book to a new parent */
   onMoveBook: (bookId: string, newParentId: string | null) => void;
   /** Handles bookmark drops onto books */
@@ -64,6 +65,7 @@ type Props = {
   onOpenSettings: () => void;
   /** Opens the Book Manager modal */
   onOpenBookManager: () => void;
+
   /** Whether a bookmark is currently being dragged (for visual feedback) */
   isDraggingBookmark: boolean;
 };
@@ -99,18 +101,6 @@ export default function Sidebar({
   onOpenBookManager,
   isDraggingBookmark
 }: Props) {
-  /**
-   * handleNewBook
-   * --------------
-   * Prompts the user for a new book name and creates it.
-   * Uses a simple prompt() for now; can be replaced with a modal later.
-   */
-  function handleNewBook(parentId: string | null = null) {
-    const name = prompt("New book name?");
-    if (!name) return;
-    onCreateBook(name.trim(), parentId);
-  }
-
   /**
    * toggleTag
    * ---------
@@ -171,7 +161,7 @@ export default function Sidebar({
             books={books}
             activeBookId={activeBookId}
             onBookClick={setActiveBookId}
-            onCreateBook={handleNewBook}
+            onCreateBook={onCreateBook}
             onMoveBook={onMoveBook}
             onBookmarkDrop={onBookmarkDrop}
             isDraggingBookmark={isDraggingBookmark}

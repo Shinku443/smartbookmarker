@@ -1,36 +1,148 @@
-import React, { useState, useEffect } from "react";
-import {
-  useDraggable,
-  useDroppable,
-} from "@dnd-kit/core";
+import React, { useState, useEffect, useRef } from "react";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 import {
   ChevronRightIcon,
   ChevronDownIcon,
-  PlusIcon,
+  PlusIcon
 } from "@heroicons/react/24/outline";
 import type { Book } from "../models/Book";
-import { BookTreeNode, buildBookTree } from "../models/BookTree";
 
 /**
- * BookTreeItem Props
+ * BookTree.tsx
+ * -------------
+ * Hierarchical tree view of books with:
+ *   - Inline creation of books/sub‑books
+ *   - Expand/collapse with simple animation
+ *   - Auto‑expand on drag hover
+ *   - Drag‑and‑drop nesting (books as draggable + droppable)
+ *   - Root‑level drop zone for books
+ *   - Explicit "All Pages" drop target for bookmarks
+ *   - Visual outlines for drop targets
+ *
+ * This component owns only UI state (expanded/collapsed, inline creation target).
+ * All persistence and domain logic flows through App.tsx via props.
+ */
+
+type BookTreeProps = {
+  /** Flat list of all books */
+  books: Book[];
+  /** Currently active book ID (null = All Pages) */
+  activeBookId: string | null;
+  /** Called when a book or "All Pages" is selected */
+  onBookClick: (bookId: string | null) => void;
+  /** Inline creation handler (App.tsx → addBook) */
+  onCreateBook: (parentId: string | null, name: string) => void;
+  /** Move a book into another book or back to root */
+  onMoveBook: (bookId: string, newParentId: string | null) => void;
+  /** Assign a bookmark to a book via drag‑and‑drop (handled in App) */
+  onBookmarkDrop?: (bookmarkId: string, bookId: string | null) => void;
+  /** Whether a bookmark (not a book) is being dragged */
+  isDraggingBookmark: boolean;
+};
+
+/**
+ * Tree node type for rendering
+ * (derived from Book with nested children and depth for indentation)
+ */
+type TreeNode = Book & {
+  children: TreeNode[];
+  depth: number;
+};
+
+/**
+ * Builds a nested tree structure from a flat list of books.
+ * Uses parentBookId relationships and depth tracking.
+ */
+function buildTree(books: Book[]): TreeNode[] {
+  const byId = new Map<string, TreeNode>();
+  const roots: TreeNode[] = [];
+
+  for (const b of books) {
+    byId.set(b.id, { ...b, children: [], depth: 0 });
+  }
+
+  for (const node of byId.values()) {
+    if (node.parentBookId && byId.has(node.parentBookId)) {
+      const parent = byId.get(node.parentBookId)!;
+      node.depth = parent.depth + 1;
+      parent.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  return roots;
+}
+
+/**
+ * InlineCreateInput
+ * -----------------
+ * Temporary inline input row for creating a new book or sub‑book.
+ * Replaces the "New Book" entry while active.
+ */
+function InlineCreateInput({
+  depth,
+  onSubmit,
+  onCancel
+}: {
+  depth: number;
+  onSubmit: (name: string) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState("");
+  const ref = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    ref.current?.focus();
+  }, []);
+
+  return (
+    <div
+      className="flex items-center py-1"
+      style={{ paddingLeft: `${depth * 16 + 16}px` }}
+    >
+      <input
+        ref={ref}
+        className="text-sm px-2 py-1 rounded-card bg-emperor-surface text-emperor-text w-full outline-none"
+        placeholder="New book name…"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && value.trim()) onSubmit(value.trim());
+          if (e.key === "Escape") onCancel();
+        }}
+        onBlur={() => {
+          if (value.trim()) onSubmit(value.trim());
+          else onCancel();
+        }}
+      />
+    </div>
+  );
+}
+
+/**
+ * DraggableBookItem
+ * -----------------
+ * Renders a single book row:
+ *   - Draggable as a book
+ *   - Droppable as a book target
+ *   - Expand/collapse if it has children
+ *   - Inline sub‑book creation
  */
 type BookTreeItemProps = {
-  node: BookTreeNode;
+  node: TreeNode;
   activeBookId: string | null;
-  onBookClick: (bookId: string | null) => void;
+  onBookClick: (id: string | null) => void;
   onCreateBook: (parentId: string | null, name: string) => void;
-  onMoveBook: (bookId: string, newParentId: string | null) => void;
-  isBookExpanded: (bookId: string) => boolean;
-  onToggleExpanded: (bookId: string) => void;
+  onMoveBook: (id: string, parentId: string | null) => void;
+  isBookExpanded: (id: string) => boolean;
+  onToggleExpanded: (id: string) => void;
   isDraggingBookmark: boolean;
-  autoExpandOnHover: (bookId: string) => void;
+  autoExpandOnHover: (id: string) => void;
   inlineCreateFor: string | null;
   setInlineCreateFor: (id: string | null) => void;
 };
 
-/**
- * DraggableBookItem
- */
 function DraggableBookItem({
   node,
   activeBookId,
@@ -42,30 +154,28 @@ function DraggableBookItem({
   isDraggingBookmark,
   autoExpandOnHover,
   inlineCreateFor,
-  setInlineCreateFor,
+  setInlineCreateFor
 }: BookTreeItemProps) {
   const {
     attributes,
     listeners,
     setNodeRef: setDragRef,
     transform,
-    isDragging,
+    isDragging
   } = useDraggable({ id: node.id });
 
-  const { setNodeRef: setDropRef, isOver } = useDroppable({
-    id: node.id,
-  });
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: node.id });
 
   const hasChildren = node.children.length > 0;
   const isActive = activeBookId === node.id;
   const isExpanded = isBookExpanded(node.id);
 
-  // Auto-expand when dragging over a collapsed parent
+  // Auto‑expand when hovering a collapsed parent with a dragged book
   useEffect(() => {
     if (isOver && !isExpanded && !isDraggingBookmark) {
       autoExpandOnHover(node.id);
     }
-  }, [isOver]);
+  }, [isOver, isExpanded, isDraggingBookmark, node.id, autoExpandOnHover]);
 
   const style = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
@@ -81,47 +191,45 @@ function DraggableBookItem({
           ? "outline outline-2 outline-emperor-accent"
           : ""
       }`}
-      style={{ paddingLeft: `${node.depth * 16}px` }}
     >
-      {/* Indentation line */}
-      {node.depth > 0 && (
-        <div
-          className="absolute left-0 top-0 bottom-0 w-px bg-emperor-border"
-          style={{ left: `${(node.depth - 1) * 16 + 8}px` }}
-        />
-      )}
+      <div
+        ref={setDragRef}
+        {...listeners}
+        {...attributes}
+        style={style}
+        className="flex items-center py-1"
+        // Do NOT stop pointer events here; inner buttons can stop as needed
+      >
+        {/* Depth indent + guide line */}
+        <div style={{ paddingLeft: `${node.depth * 16}px` }} className="flex items-center flex-1">
+          {node.depth > 0 && (
+            <div
+              className="absolute left-0 top-0 bottom-0 w-px bg-emperor-border"
+              style={{ left: `${(node.depth - 1) * 16 + 8}px` }}
+            />
+          )}
 
-      <div className="flex items-center py-1">
-        {/* Expand/collapse button */}
-        {hasChildren ? (
-          <button
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleExpanded(node.id);
-            }}
-            className="w-4 h-4 flex items-center justify-center text-emperor-muted hover:text-emperor-text mr-1 flex-shrink-0"
-          >
-            {isExpanded ? (
-              <ChevronDownIcon className="w-3 h-3" />
-            ) : (
-              <ChevronRightIcon className="w-3 h-3" />
-            )}
-          </button>
-        ) : (
-          <div className="w-4 h-4 mr-1 flex-shrink-0" />
-        )}
+          {/* Expand/collapse control */}
+          {hasChildren ? (
+            <button
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleExpanded(node.id);
+              }}
+              className="w-4 h-4 flex items-center justify-center text-emperor-muted hover:text-emperor-text mr-1"
+            >
+              {isExpanded ? (
+                <ChevronDownIcon className="w-3 h-3" />
+              ) : (
+                <ChevronRightIcon className="w-3 h-3" />
+              )}
+            </button>
+          ) : (
+            <div className="w-4 h-4 mr-1" />
+          )}
 
-        {/* Draggable area */}
-        <div
-          ref={setDragRef}
-          style={style}
-          {...listeners}
-          {...attributes}
-          onPointerDown={(e) => e.stopPropagation()}
-          className="flex items-center flex-1 cursor-move"
-        >
-          {/* Book button */}
+          {/* Label button */}
           <button
             onMouseDown={(e) => e.stopPropagation()}
             className={`flex-1 text-left text-sm px-2 py-1 rounded-card transition-colors ${
@@ -137,34 +245,36 @@ function DraggableBookItem({
             {node.name}
           </button>
 
-          {/* Add sub-book button */}
-          <button
-            onMouseDown={(e) => e.stopPropagation()}
-            className="opacity-0 group-hover:opacity-100 w-4 h-4 flex items-center justify-center text-emperor-muted hover:text-emperor-text ml-1 transition-opacity flex-shrink-0"
-            onClick={(e) => {
-              e.stopPropagation();
-              setInlineCreateFor(node.id);
-            }}
-            title="Add sub-book"
-          >
-            <PlusIcon className="w-3 h-3" />
-          </button>
+          {/* Sub‑book add button (hidden when inline creating) */}
+          {inlineCreateFor !== node.id && (
+            <button
+              onMouseDown={(e) => e.stopPropagation()}
+              className="opacity-0 group-hover:opacity-100 w-4 h-4 flex items-center justify-center text-emperor-muted hover:text-emperor-text ml-1 transition-opacity"
+              onClick={(e) => {
+                e.stopPropagation();
+                setInlineCreateFor(node.id);
+              }}
+            >
+              <PlusIcon className="w-3 h-3" />
+            </button>
+          )}
         </div>
       </div>
 
-      {/* Inline sub-book creation */}
+      {/* Inline sub‑book creation replaces the + button */}
       {inlineCreateFor === node.id && (
         <InlineCreateInput
           depth={node.depth}
           onSubmit={(name) => {
             onCreateBook(node.id, name);
             setInlineCreateFor(null);
+            onToggleExpanded(node.id);
           }}
           onCancel={() => setInlineCreateFor(null)}
         />
       )}
 
-      {/* Children with animation */}
+      {/* Children with simple expand/collapse animation */}
       <div
         className={`transition-all duration-200 overflow-hidden ${
           isExpanded ? "max-h-[2000px] opacity-100" : "max-h-0 opacity-0"
@@ -192,45 +302,13 @@ function DraggableBookItem({
 }
 
 /**
- * InlineCreateInput
- */
-function InlineCreateInput({
-  depth,
-  onSubmit,
-  onCancel,
-}: {
-  depth: number;
-  onSubmit: (name: string) => void;
-  onCancel: () => void;
-}) {
-  const [value, setValue] = useState("");
-
-  return (
-    <div
-      className="flex items-center py-1"
-      style={{ paddingLeft: `${depth * 16 + 16}px` }}
-    >
-      <input
-        autoFocus
-        className="text-sm px-2 py-1 rounded-card bg-emperor-surface text-emperor-text w-full outline-none"
-        placeholder="New book name…"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && value.trim()) onSubmit(value.trim());
-          if (e.key === "Escape") onCancel();
-        }}
-        onBlur={() => {
-          if (value.trim()) onSubmit(value.trim());
-          else onCancel();
-        }}
-      />
-    </div>
-  );
-}
-
-/**
- * BookTree
+ * BookTree Component
+ * ------------------
+ * Renders:
+ *   - "All Pages" root button (explicit drop target: id = "library-root")
+ *   - Outer tree drop zone for books (id = "library-root-zone")
+ *   - Nested book tree
+ *   - Root‑level inline creation (replacing the “+ New Book” entry)
  */
 export default function BookTree({
   books,
@@ -239,56 +317,55 @@ export default function BookTree({
   onCreateBook,
   onMoveBook,
   onBookmarkDrop,
-  isDraggingBookmark,
-}: {
-  books: Book[];
-  activeBookId: string | null;
-  onBookClick: (bookId: string | null) => void;
-  onCreateBook: (parentId: string | null, name: string) => void;
-  onMoveBook: (bookId: string, newParentId: string | null) => void;
-  onBookmarkDrop?: (bookmarkId: string, bookId: string | null) => void;
-  isDraggingBookmark: boolean;
-}) {
+  isDraggingBookmark
+}: BookTreeProps) {
   const [expandedBooks, setExpandedBooks] = useState<Set<string>>(new Set());
   const [inlineCreateFor, setInlineCreateFor] = useState<string | null>(null);
 
-  const { setNodeRef: setRootDropRef, isOver: isRootOver } = useDroppable({
-    id: "library-root",
+  // Outer root zone (used for moving books to root when dragged "outside")
+  const { setNodeRef: setRootZoneRef, isOver: isRootZoneOver } = useDroppable({
+    id: "library-root-zone"
   });
 
-  const treeNodes = buildBookTree(books);
+  // Explicit "All Pages" drop target (used for bookmarks + books)
+  const { setNodeRef: setRootRef, isOver: isRootOver } = useDroppable({
+    id: "library-root"
+  });
 
-  const toggleExpanded = (bookId: string) => {
+  const treeNodes = buildTree(books);
+
+  const toggleExpanded = (id: string) => {
     setExpandedBooks((prev) => {
       const next = new Set(prev);
-      next.has(bookId) ? next.delete(bookId) : next.add(bookId);
+      next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
   };
 
-  const autoExpandOnHover = (bookId: string) => {
+  const autoExpandOnHover = (id: string) => {
     setExpandedBooks((prev) => {
-      if (prev.has(bookId)) return prev;
+      if (prev.has(id)) return prev;
       const next = new Set(prev);
-      next.add(bookId);
+      next.add(id);
       return next;
     });
   };
 
   return (
     <div
-      ref={setRootDropRef}
+      ref={setRootZoneRef}
       className={`space-y-1 p-1 rounded-card transition-colors ${
-        isRootOver ? "outline outline-2 outline-emperor-accent" : ""
+        isRootZoneOver ? "outline outline-2 outline-emperor-accent" : ""
       }`}
     >
-      {/* All Pages */}
+      {/* All Pages (explicit root drop target) */}
       <div
+        ref={setRootRef}
         className={`w-full text-left text-sm px-2 py-1 rounded-card ${
           activeBookId === null
             ? "bg-emperor-surfaceStrong"
             : "hover:bg-emperor-surface"
-        }`}
+        } ${isRootOver ? "outline outline-2 outline-emperor-accent" : ""}`}
         onClick={() => onBookClick(null)}
       >
         All Pages
@@ -312,8 +389,8 @@ export default function BookTree({
         />
       ))}
 
-      {/* Inline root-level create */}
-      {inlineCreateFor === "root" && (
+      {/* Root‑level inline creation replaces the button */}
+      {inlineCreateFor === "root" ? (
         <InlineCreateInput
           depth={0}
           onSubmit={(name) => {
@@ -322,15 +399,14 @@ export default function BookTree({
           }}
           onCancel={() => setInlineCreateFor(null)}
         />
+      ) : (
+        <button
+          className="w-full text-left text-sm px-2 py-1 rounded-card text-emperor-muted hover:bg-emperor-surface"
+          onClick={() => setInlineCreateFor("root")}
+        >
+          + New Book
+        </button>
       )}
-
-      {/* New root book button */}
-      <button
-        className="w-full text-left text-sm px-2 py-1 rounded-card text-emperor-muted hover:bg-emperor-surface"
-        onClick={() => setInlineCreateFor("root")}
-      >
-        + New Book
-      </button>
     </div>
   );
 }

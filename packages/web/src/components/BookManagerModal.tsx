@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   DndContext,
   closestCenter,
@@ -15,14 +15,19 @@ import { Card } from "./ui/Card";
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Input";
 import type { Book } from "../models/Book";
-import { Bars3Icon, TrashIcon } from "@heroicons/react/24/outline";
+import { Bars3Icon, TrashIcon, PlusIcon } from "@heroicons/react/24/outline";
 
 /**
  * BookManagerModal.tsx
  * --------------------
  * A modal interface for managing book collections in the library.
- * Provides drag-and-drop reordering, inline renaming, and deletion of books.
- * Uses @dnd-kit for smooth drag-and-drop interactions.
+ * Provides:
+ *   - Drag‑and‑drop reordering
+ *   - Inline renaming
+ *   - Deletion
+ *   - Inline creation of new books (floating + button)
+ *
+ * Uses @dnd-kit for smooth drag‑and‑drop interactions.
  */
 
 /**
@@ -46,6 +51,8 @@ type Props = {
   onRenameBook: (id: string, name: string) => void;
   /** Callback to delete a book */
   onDeleteBook: (id: string) => void;
+  /** Callback to create a new book */
+  onCreateBook: (name: string, parentId?: string | null) => void;
   /** Callback to close the modal */
   onClose: () => void;
 };
@@ -54,12 +61,6 @@ type Props = {
  * SortableBookRow Component
  * -------------------------
  * A draggable row component for individual books in the manager.
- * Uses @dnd-kit's useSortable hook to enable drag-and-drop functionality.
- * Displays book name (editable), page count, and delete button.
- *
- * @param book - The book data with count
- * @param onRename - Callback for renaming the book
- * @param onDelete - Callback for deleting the book
  */
 function SortableBookRow({
   book,
@@ -70,11 +71,9 @@ function SortableBookRow({
   onRename: (name: string) => void;
   onDelete: () => void;
 }) {
-  // Hook for drag-and-drop functionality
   const { attributes, listeners, setNodeRef, transform, transition } =
     useSortable({ id: book.id });
 
-  // Apply transform styles for smooth dragging
   const style = {
     transform: CSS.Transform.toString(transform),
     transition
@@ -85,30 +84,29 @@ function SortableBookRow({
       ref={setNodeRef}
       style={style}
       className="flex items-center gap-3 py-2 border-b border-emperor-border last:border-none"
-      {...attributes} // Accessibility attributes for drag handles
+      {...attributes}
     >
-      {/* Drag handle button */}
+      {/* Drag handle */}
       <button
         className="cursor-grab active:cursor-grabbing text-emperor-muted hover:text-emperor-text"
-        {...listeners} // Drag event listeners
+        {...listeners}
       >
         <Bars3Icon className="w-4 h-4" />
       </button>
 
-      {/* Book details and edit input */}
+      {/* Editable name + page count */}
       <div className="flex-1">
         <Input
           value={book.name}
           onChange={(e) => onRename(e.target.value)}
           className="text-sm"
         />
-        {/* Display page count with proper pluralization */}
         <div className="text-xs text-emperor-muted mt-1">
           {book.pageCount} {book.pageCount === 1 ? "page" : "pages"}
         </div>
       </div>
 
-      {/* Delete button */}
+      {/* Delete */}
       <button
         onClick={onDelete}
         className="text-emperor-muted hover:text-red-400"
@@ -120,53 +118,97 @@ function SortableBookRow({
 }
 
 /**
+ * InlineCreateRow
+ * ----------------
+ * Temporary row for creating a new book.
+ * Auto‑focuses the input and submits on Enter.
+ */
+function InlineCreateRow({
+  onSubmit,
+  onCancel
+}: {
+  onSubmit: (name: string) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState("");
+  const ref = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    ref.current?.focus();
+  }, []);
+
+  return (
+    <div className="flex items-center gap-3 py-2 border-b border-emperor-border">
+      {/* Spacer where drag handle would be */}
+      <div className="w-4 h-4 opacity-0" />
+
+      <div className="flex-1">
+        <Input
+          ref={ref}
+          value={value}
+          placeholder="New book name…"
+          onChange={(e) => setValue(e.target.value)}
+          className="text-sm"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && value.trim()) onSubmit(value.trim());
+            if (e.key === "Escape") onCancel();
+          }}
+          onBlur={() => {
+            if (value.trim()) onSubmit(value.trim());
+            else onCancel();
+          }}
+        />
+      </div>
+
+      {/* Spacer where delete button would be */}
+      <div className="w-4 h-4 opacity-0" />
+    </div>
+  );
+}
+
+/**
  * BookManagerModal Component
  * --------------------------
  * Main modal component for book management operations.
- * Wraps the sortable book list in DndContext for drag-and-drop support.
- * Handles reordering logic and delegates other operations to props.
- *
- * @param props - The component props
- * @returns JSX element for the book manager modal
  */
 export default function BookManagerModal({
   books,
   onReorderBooks,
   onRenameBook,
   onDeleteBook,
+  onCreateBook,
   onClose
 }: Props) {
-  // Extract IDs for sortable context
+  const [isCreating, setIsCreating] = useState(false);
+
   const ids = books.map((b) => b.id);
 
-  /**
-   * handleDragEnd
-   * --------------
-   * Handles the end of a drag operation by calculating new order and notifying parent.
-   * Uses arrayMove utility to reorder the IDs array based on drag positions.
-   *
-   * @param event - The drag end event from @dnd-kit
-   */
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
-    // Ignore if dropped on same item or no target
     if (!over || active.id === over.id) return;
 
-    // Find indices in current order
     const oldIndex = ids.indexOf(active.id as string);
     const newIndex = ids.indexOf(over.id as string);
     if (oldIndex === -1 || newIndex === -1) return;
 
-    // Calculate new order and notify parent
     const newOrder = arrayMove(ids, oldIndex, newIndex);
     onReorderBooks(newOrder);
   }
 
   return (
-    // Modal overlay
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <Card className="w-full max-w-lg bg-emperor-surfaceStrong p-6">
-        {/* Modal header */}
+      <Card className="relative w-full max-w-lg bg-emperor-surfaceStrong p-6">
+
+        {/* Floating + button */}
+        <button
+          onClick={() => setIsCreating(true)}
+          className="absolute top-4 right-4 text-emperor-muted hover:text-emperor-text"
+          title="Add Book"
+        >
+          <PlusIcon className="w-5 h-5" />
+        </button>
+
+        {/* Header */}
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold">Manage Books</h2>
           <Button size="sm" variant="subtle" onClick={onClose}>
@@ -174,14 +216,10 @@ export default function BookManagerModal({
           </Button>
         </div>
 
-        {/* Drag-and-drop context for the book list */}
-        <DndContext
-          collisionDetection={closestCenter} // Center-based collision detection
-          onDragEnd={handleDragEnd}
-        >
+        {/* Sortable list */}
+        <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={ids} strategy={verticalListSortingStrategy}>
             <div>
-              {/* Render sortable rows for each book */}
               {books.map((b) => (
                 <SortableBookRow
                   key={b.id}
@@ -190,6 +228,17 @@ export default function BookManagerModal({
                   onDelete={() => onDeleteBook(b.id)}
                 />
               ))}
+
+              {/* Inline creation row at bottom */}
+              {isCreating && (
+                <InlineCreateRow
+                  onSubmit={(name) => {
+                    onCreateBook(name, null);
+                    setIsCreating(false);
+                  }}
+                  onCancel={() => setIsCreating(false)}
+                />
+              )}
             </div>
           </SortableContext>
         </DndContext>
