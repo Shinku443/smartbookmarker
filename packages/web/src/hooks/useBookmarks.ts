@@ -127,9 +127,10 @@ export function useBookmarks() {
    * Generates a unique ID and initializes with empty order array.
    *
    * @param name - Name for the new book
+   * @param parentBookId - Parent book ID, or null for root level
    * @returns The newly created book
    */
-  function addBook(name: string): Book {
+  function addBook(name: string, parentBookId: string | null = null): Book {
     const now = Date.now();
     const newBook: Book = {
       id: crypto.randomUUID(),
@@ -137,7 +138,7 @@ export function useBookmarks() {
       createdAt: now,
       updatedAt: now,
       order: [],
-      parentBookId: null
+      parentBookId
     };
 
     const nextBooks = [...books, newBook];
@@ -210,6 +211,59 @@ export function useBookmarks() {
   }
 
   /**
+   * moveBook
+   * ---------
+   * Moves a book to a different parent or to root level.
+   * Prevents circular references by checking ancestry.
+   *
+   * @param bookId - ID of book to move
+   * @param newParentId - New parent book ID, or null for root level
+   */
+
+  function moveBook(bookId: string, newParentId: string | null) {
+    if (!newParentId) {
+      // Move to root: always allowed
+      const nextBooks = books.map((b) =>
+        b.id === bookId
+          ? { ...b, parentBookId: null, updatedAt: Date.now() }
+          : b
+      );
+      persistAll(bookmarks, nextBooks);
+      return;
+    }
+
+    // Prevent moving a book into itself or its descendants
+    const same = bookId === newParentId;
+    const parentIsDescendantOfBook = isDescendant(newParentId, bookId);
+    if (same || parentIsDescendantOfBook) {
+      return;
+    }
+    const nextBooks = books.map((b) =>
+      b.id === bookId
+        ? { ...b, parentBookId: newParentId, updatedAt: Date.now() }
+        : b
+    );
+    persistAll(bookmarks, nextBooks);
+  }
+
+  /**
+   * isDescendant
+   * -------------
+   * Checks if a book is a descendant of another book.
+   * Used to prevent circular references when moving books.
+   *
+   * @param potentialDescendantId - Book ID to check
+   * @param potentialAncestorId - Potential ancestor book ID
+   * @returns True if the first book is a descendant of the second
+   */
+  function isDescendant(potentialDescendantId: string, potentialAncestorId: string): boolean {
+    const book = books.find((b) => b.id === potentialDescendantId);
+    if (!book || !book.parentBookId) return false;
+    if (book.parentBookId === potentialAncestorId) return true;
+    return isDescendant(book.parentBookId, potentialAncestorId);
+  }
+
+  /**
    * assignBookmarkToBook
    * ---------------------
    * Moves a bookmark to a different book or to root (no book).
@@ -279,9 +333,9 @@ export function useBookmarks() {
     const nextBooks = books.map((b) =>
       b.id === bookId
         ? {
-            ...b,
-            order: [...newIds, ...((b.order ?? []).filter((id) => !newIds.includes(id)))]
-          }
+          ...b,
+          order: [...newIds, ...((b.order ?? []).filter((id) => !newIds.includes(id)))]
+        }
         : b
     );
     persistAll(bookmarks, nextBooks);
@@ -469,11 +523,11 @@ export function useBookmarks() {
     const next: RichBookmark[] = bookmarks.map((b) =>
       b.id === updated.id
         ? {
-            ...b,
-            ...updated,
-            tags: autoTags,
-            updatedAt: Date.now()
-          }
+          ...b,
+          ...updated,
+          tags: autoTags,
+          updatedAt: Date.now()
+        }
         : b
     );
 
@@ -492,11 +546,11 @@ export function useBookmarks() {
     const next: RichBookmark[] = bookmarks.map((b) =>
       b.id === updated.id
         ? {
-            ...b,
-            ...updated,
-            updatedAt: Date.now(),
-            faviconUrl: computeFavicon(updated.url)
-          }
+          ...b,
+          ...updated,
+          updatedAt: Date.now(),
+          faviconUrl: computeFavicon(updated.url)
+        }
         : b
     );
 
@@ -521,6 +575,7 @@ export function useBookmarks() {
     addBook,
     renameBook,
     deleteBook,
+    moveBook,
     assignBookmarkToBook,
     reorderBookPages,
     reorderBooks,

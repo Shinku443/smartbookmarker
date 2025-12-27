@@ -1,6 +1,7 @@
 import React from "react";
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Input";
+import BookTree from "./BookTree";
 import type { Book } from "../models/Book";
 
 /**
@@ -47,8 +48,12 @@ type Props = {
   activeBookId: string | null;
   /** Sets the active book filter */
   setActiveBookId: (id: string | null) => void;
-  /** Creates a new book with the given name */
-  onCreateBook: (name: string) => void;
+  /** Creates a new book with the given name and optional parent */
+  onCreateBook: (name: string, parentId?: string | null) => void;
+  /** Moves a book to a new parent */
+  onMoveBook: (bookId: string, newParentId: string | null) => void;
+  /** Handles bookmark drops onto books */
+  onBookmarkDrop?: (bookmarkId: string, bookId: string | null) => void;
 
   /** Imports bookmarks from an HTML file */
   onImport: (e: any) => void;
@@ -59,6 +64,8 @@ type Props = {
   onOpenSettings: () => void;
   /** Opens the Book Manager modal */
   onOpenBookManager: () => void;
+  /** Whether a bookmark is currently being dragged (for visual feedback) */
+  isDraggingBookmark: boolean;
 };
 
 /**
@@ -84,10 +91,13 @@ export default function Sidebar({
   activeBookId,
   setActiveBookId,
   onCreateBook,
+  onMoveBook,
+  onBookmarkDrop,
   onImport,
   onExport,
   onOpenSettings,
-  onOpenBookManager
+  onOpenBookManager,
+  isDraggingBookmark
 }: Props) {
   /**
    * handleNewBook
@@ -95,10 +105,10 @@ export default function Sidebar({
    * Prompts the user for a new book name and creates it.
    * Uses a simple prompt() for now; can be replaced with a modal later.
    */
-  function handleNewBook() {
+  function handleNewBook(parentId: string | null = null) {
     const name = prompt("New book name?");
     if (!name) return;
-    onCreateBook(name.trim());
+    onCreateBook(name.trim(), parentId);
   }
 
   /**
@@ -157,42 +167,15 @@ export default function Sidebar({
             </button>
           </div>
 
-          <div className="space-y-1">
-            {/* "All Pages" button */}
-            <button
-              className={`w-full text-left text-sm px-2 py-1 rounded-card ${
-                activeBookId === null
-                  ? "bg-emperor-surfaceStrong"
-                  : "hover:bg-emperor-surface"
-              }`}
-              onClick={() => setActiveBookId(null)}
-            >
-              All Pages
-            </button>
-
-            {/* Individual book buttons */}
-            {books.map((b) => (
-              <button
-                key={b.id}
-                className={`w-full text-left text-sm px-2 py-1 rounded-card ${
-                  activeBookId === b.id
-                    ? "bg-emperor-surfaceStrong"
-                    : "hover:bg-emperor-surface"
-                }`}
-                onClick={() => setActiveBookId(b.id)}
-              >
-                {b.name}
-              </button>
-            ))}
-
-            {/* Create new book */}
-            <button
-              className="w-full text-left text-sm px-2 py-1 rounded-card text-emperor-muted hover:bg-emperor-surface"
-              onClick={handleNewBook}
-            >
-              + New Book
-            </button>
-          </div>
+          <BookTree
+            books={books}
+            activeBookId={activeBookId}
+            onBookClick={setActiveBookId}
+            onCreateBook={handleNewBook}
+            onMoveBook={onMoveBook}
+            onBookmarkDrop={onBookmarkDrop}
+            isDraggingBookmark={isDraggingBookmark}
+          />
         </div>
 
         {/* ----------------------------- */}

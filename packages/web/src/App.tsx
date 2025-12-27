@@ -1,4 +1,15 @@
 import { useState, useMemo } from "react";
+import {
+  DndContext,
+  closestCenter,
+  DragEndEvent,
+  DragStartEvent,
+  DragCancelEvent,
+  DragOverlay
+} from "@dnd-kit/core";
+import {
+  arrayMove
+} from "@dnd-kit/sortable";
 import Layout from "./components/Layout";
 import Sidebar from "./components/Sidebar";
 import BookmarkList from "./components/BookmarkList";
@@ -7,6 +18,7 @@ import EditBookmarkModal from "./components/EditBookmarkModal";
 import AddBookmarkModal from "./components/AddBookmarkModal";
 import SettingsScreen from "./components/SettingsScreen";
 import BookManagerModal from "./components/BookManagerModal";
+import Breadcrumb from "./components/Breadcrumb";
 
 import { useBookmarks } from "./hooks/useBookmarks";
 import type { RichBookmark } from "./models/RichBookmark";
@@ -76,6 +88,7 @@ export default function App() {
     addBook,
     renameBook,
     deleteBook,
+    moveBook,
 
     assignBookmarkToBook,
     reorderBookPages,
@@ -113,6 +126,12 @@ export default function App() {
     useState<RichBookmark | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showBookManager, setShowBookManager] = useState(false);
+  const [isDraggingBookmark, setIsDraggingBookmark] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  /**
+   * activeBookmark
+   * ---------------
 
   /**
    * tags
@@ -298,6 +317,90 @@ export default function App() {
   }
 
   /**
+   * Drag event handlers
+   * -------------------
+   * Handle drag events for both bookmark reordering and bookmark-to-book drops.
+   */
+  function handleDragStart(event: DragStartEvent) {
+    const draggedId = event.active.id as string;
+    setActiveId(draggedId);
+    
+    // Check if the dragged item is a bookmark (not a book)
+    const isDraggedItemABook = books.some(b => b.id === draggedId);
+    setIsDraggingBookmark(!isDraggedItemABook);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    
+    setActiveId(null);
+    setIsDraggingBookmark(false);
+
+    if (!over) return;
+
+    const draggedId = active.id as string;
+    const targetId = over.id as string;
+
+    // Check if the dragged item is a book or a bookmark
+    const isDraggedItemABook = books.some(b => b.id === draggedId);
+
+    if (isDraggedItemABook) {
+      // Handle book-to-book drag
+      if (active.id === over.id) return;
+
+      const draggedBookId = draggedId;
+
+      // If dropping on "All Pages", move to root
+      if (targetId === "all-pages") {
+        moveBook(draggedBookId, null);
+        return;
+      }
+
+      // Find the target book
+      const targetBook = books.find(b => b.id === targetId);
+      if (targetBook) {
+        moveBook(draggedBookId, targetId);
+      }
+    } else {
+      // Handle bookmark-to-book drop
+      // Check if dropping on a book (any ID that's not a bookmark ID)
+      const isTargetABook = books.some(b => b.id === targetId) || targetId === "all-pages";
+      
+      if (isTargetABook) {
+        const bookmarkId = draggedId;
+        const bookId = targetId === "all-pages" ? null : targetId;
+        assignBookmarkToBook(bookmarkId, bookId);
+        return;
+      }
+
+      // Handle bookmark reordering
+      if (active.id === over.id) return;
+
+      // Reordering MUST use the full ordered list, not the filtered subset.
+      const ids = sortedByOrder.map((b) => b.id);
+      const oldIndex = ids.indexOf(active.id as string);
+      const newIndex = ids.indexOf(over.id as string);
+      if (oldIndex === -1 || newIndex === -1) return;
+
+      const newOrder = arrayMove(ids, oldIndex, newIndex);
+      handleReorderMain(newOrder);
+    }
+  }
+
+  function handleDragCancel(_event: DragCancelEvent) {
+    setActiveId(null);
+    setIsDraggingBookmark(false);
+  }
+
+  /**
+   * activeBookmark
+   * ---------------
+   * Used by DragOverlay to render a visual clone while dragging.
+   */
+  const activeBookmark =
+    activeId != null ? bookmarks.find((b) => b.id === activeId) : null;
+
+  /**
    * booksWithCounts
    * ----------------
    * Used by BookManagerModal to show how many pages each book contains.
@@ -316,7 +419,12 @@ export default function App() {
   }, [books, bookmarks]);
 
   return (
-    <>
+    <DndContext
+      collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onDragCancel={handleDragCancel}
+    >
       <Layout
         sidebar={
           <Sidebar
@@ -330,10 +438,13 @@ export default function App() {
             activeBookId={activeBookId}
             setActiveBookId={setActiveBookId}
             onCreateBook={addBook}
+            onMoveBook={moveBook}
+            onBookmarkDrop={assignBookmarkToBook}
             onImport={handleImport}
             onExport={handleExport}
             onOpenSettings={() => setShowSettings(true)}
             onOpenBookManager={() => setShowBookManager(true)}
+            isDraggingBookmark={isDraggingBookmark}
           />
         }
       >
@@ -361,6 +472,13 @@ export default function App() {
               onSaveInline={handleInlineSave}
               onTagClick={handleTagClick}
               onReorderPinned={handleReorderPinned}
+            />
+
+            {/* Breadcrumb navigation */}
+            <Breadcrumb
+              books={books}
+              activeBookId={activeBookId}
+              onBookClick={setActiveBookId}
             />
 
             {/* Main list (sortable, filtering handled inside BookmarkList) */}
@@ -417,6 +535,19 @@ export default function App() {
           onClose={() => setShowBookManager(false)}
         />
       )}
-    </>
+
+      {/* DragOverlay for bookmark dragging */}
+      <DragOverlay>
+        {activeBookmark ? (
+          <div className="rotate-3 opacity-90">
+            {/* Simple overlay - could be enhanced with BookmarkCard if needed */}
+            <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg border max-w-md">
+              <h3 className="font-medium text-sm truncate">{activeBookmark.title}</h3>
+              <p className="text-xs text-gray-500 truncate">{activeBookmark.url}</p>
+            </div>
+          </div>
+        ) : null}
+      </DragOverlay>
+    </DndContext>
   );
 }

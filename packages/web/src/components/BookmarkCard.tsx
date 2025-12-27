@@ -310,15 +310,26 @@ export default function BookmarkCard({
       {/* ------------------------------------------------------------------ */}
       {/* Tags Row: chips reflecting tag labels, clickable for filtering     */}
       {/* ------------------------------------------------------------------ */}
-      <div className="mt-3 flex flex-wrap gap-2">
-        {b.tags?.map((t) => (
-          <TagChip
-            key={t.label}
-            label={t.label}
-            active={activeTags.includes(t.label)}
-            onClick={() => onTagClick(t.label)}
-          />
-        ))}
+      <div className="mt-3 flex items-center justify-between">
+        <div className="flex flex-wrap gap-2">
+          {b.tags?.map((t) => (
+            <TagChip
+              key={t.label}
+              label={t.label}
+              active={activeTags.includes(t.label)}
+              onClick={() => onTagClick(t.label)}
+            />
+          ))}
+        </div>
+
+        {/* Timestamp */}
+        <div className="text-xs text-emperor-muted ml-4">
+          {new Date(b.createdAt).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+          })}
+        </div>
       </div>
     </Card>
   );

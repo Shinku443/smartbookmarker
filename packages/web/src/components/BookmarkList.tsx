@@ -220,37 +220,6 @@ export default function BookmarkList({
   }, [bookmarks, search, activeTags, activeBookId]);
 
   /**
-   * Drag lifecycle
-   * --------------
-   * - handleDragStart  → store activeId
-   * - handleDragEnd    → compute new order based on full ordered list
-   * - handleDragCancel → clear activeId
-   */
-  function handleDragStart(event: DragStartEvent) {
-    setActiveId(event.active.id as string);
-  }
-
-  function handleDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    setActiveId(null);
-
-    if (!over || active.id === over.id) return;
-
-    // Reordering MUST use the full ordered list, not the filtered subset.
-    const ids = bookmarks.map((b) => b.id);
-    const oldIndex = ids.indexOf(active.id as string);
-    const newIndex = ids.indexOf(over.id as string);
-    if (oldIndex === -1 || newIndex === -1) return;
-
-    const newOrder = arrayMove(ids, oldIndex, newIndex);
-    onReorder(newOrder);
-  }
-
-  function handleDragCancel(_event: DragCancelEvent) {
-    setActiveId(null);
-  }
-
-  /**
    * ids
    * ---
    * The IDs used by SortableContext.
@@ -286,57 +255,25 @@ export default function BookmarkList({
       />
 
       {/* ------------------------------------------------------------------ */}
-      {/* Drag‑and‑Drop Context                                              */}
-      {/* Wraps the sortable list and drag overlay.                          */}
+      {/* Sortable List Container                                           */}
       {/* ------------------------------------------------------------------ */}
-      <DndContext
-        collisionDetection={closestCenter}
-        onDragStart={handleDragStart}
-        onDragEnd={handleDragEnd}
-        onDragCancel={handleDragCancel}
-      >
-        {/* Sortable list container */}
-        <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-          <ul className="space-y-4">
-            {filteredBookmarks.map((b) => (
-              <li key={b.id}>
-                <BookmarkCard
-                  b={b}
-                  books={books}
-                  selected={selectedIds.includes(b.id)}
-                  onToggleSelected={toggleSelected}
-                  editMode={editMode}
-                  activeTags={activeTags}
-                  {...actions}
-                />
-              </li>
-            ))}
-          </ul>
-        </SortableContext>
-
-        {/* ------------------------------------------------------------------ */}
-        {/* DragOverlay                                                       */}
-        {/* Lightweight clone of the active card for snappy drag pickup.      */}
-        {/* ------------------------------------------------------------------ */}
-        <DragOverlay>
-          {activeBookmark ? (
-            <BookmarkCard
-              b={activeBookmark}
-              books={books}
-              selected={false}
-              onToggleSelected={() => {}}
-              editMode="inline"
-              activeTags={activeTags}
-              onEditRequest={() => {}}
-              onSaveInline={() => {}}
-              onDelete={() => {}}
-              onPin={() => {}}
-              onRetag={() => {}}
-              onTagClick={() => {}}
-            />
-          ) : null}
-        </DragOverlay>
-      </DndContext>
+      <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+        <ul className="space-y-4">
+          {filteredBookmarks.map((b) => (
+            <li key={b.id}>
+              <BookmarkCard
+                b={b}
+                books={books}
+                selected={selectedIds.includes(b.id)}
+                onToggleSelected={toggleSelected}
+                editMode={editMode}
+                activeTags={activeTags}
+                {...actions}
+              />
+            </li>
+          ))}
+        </ul>
+      </SortableContext>
     </div>
   );
 }
