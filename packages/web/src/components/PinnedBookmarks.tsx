@@ -38,27 +38,15 @@ import type { Book } from "../models/Book";
  * within that subset.
  */
 
-/**
- * Props Interface
- * ---------------
- * Defines all inputs required by PinnedBookmarks.
- */
 type Props = {
-  /** The full list of bookmarks already filtered to pinned items by App.tsx */
   bookmarks: RichBookmark[];
-
-  /** All books (for showing membership inside BookmarkCard) */
   books: Book[];
 
-  /** IDs of currently selected bookmarks (multi‑select) */
   selectedIds: string[];
-  /** Updates the selected IDs array */
   setSelectedIds: (ids: string[]) => void;
 
-  /** Inline vs modal editing mode */
   editMode: "modal" | "inline";
 
-  /** CRUD + action callbacks for individual bookmarks */
   onDelete: (id: string) => void;
   onPin: (id: string) => void;
   onRetag: (b: RichBookmark) => void;
@@ -66,11 +54,12 @@ type Props = {
   onSaveInline: (b: RichBookmark) => void;
   onTagClick: (tag: string) => void;
 
-  /** Called when pinned bookmarks are reordered */
   onReorderPinned: (ids: string[]) => void;
 
-  /** Active tag filters (used to highlight matching tag chips) */
   activeTags: string[];
+
+  /** Moves a pinned bookmark to a different book (or root) */
+  onMoveToBook: (id: string, bookId: string | null) => void;
 };
 
 export default function PinnedBookmarks({
@@ -81,30 +70,14 @@ export default function PinnedBookmarks({
   editMode,
   onReorderPinned,
   activeTags,
+  onMoveToBook,
   ...actions
 }: Props) {
-  /**
-   * pinned
-   * ------
-   * Extract only pinned bookmarks.
-   * App.tsx already sorts them using pinnedOrder.
-   */
   const pinned = bookmarks.filter((b) => b.pinned);
   if (pinned.length === 0) return null;
 
-  /**
-   * activeId
-   * --------
-   * ID of the bookmark currently being dragged.
-   * Used by DragOverlay to render a visual clone.
-   */
   const [activeId, setActiveId] = useState<string | null>(null);
 
-  /**
-   * toggleSelected
-   * ---------------
-   * Adds/removes a bookmark from the multi‑select selection.
-   */
   function toggleSelected(id: string) {
     setSelectedIds(
       selectedIds.includes(id)
@@ -113,13 +86,6 @@ export default function PinnedBookmarks({
     );
   }
 
-  /**
-   * Drag Lifecycle
-   * --------------
-   * handleDragStart  → store activeId
-   * handleDragEnd    → compute new pinned order
-   * handleDragCancel → clear activeId
-   */
   function handleDragStart(event: DragStartEvent) {
     setActiveId(event.active.id as string);
   }
@@ -130,7 +96,6 @@ export default function PinnedBookmarks({
 
     if (!over || active.id === over.id) return;
 
-    // Reorder within the pinned subset
     const ids = pinned.map((b) => b.id);
     const oldIndex = ids.indexOf(active.id as string);
     const newIndex = ids.indexOf(over.id as string);
@@ -143,40 +108,21 @@ export default function PinnedBookmarks({
     setActiveId(null);
   }
 
-  /**
-   * ids
-   * ---
-   * The IDs used by SortableContext.
-   * Always derived from the pinned subset.
-   */
   const ids = pinned.map((b) => b.id);
 
-  /**
-   * activeBookmark
-   * ---------------
-   * Used by DragOverlay to render a lightweight clone.
-   */
   const activeBookmark =
     activeId != null ? pinned.find((b) => b.id === activeId) : null;
 
   return (
     <section className="mb-8">
-      {/* ------------------------------------------------------------------ */}
-      {/* Section Header                                                     */}
-      {/* ------------------------------------------------------------------ */}
       <h2 className="text-lg font-semibold mb-3">Pinned</h2>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Drag‑and‑Drop Context                                              */}
-      {/* Wraps the sortable pinned list and drag overlay.                   */}
-      {/* ------------------------------------------------------------------ */}
       <DndContext
         collisionDetection={closestCenter}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        {/* Sortable list container */}
         <SortableContext items={ids} strategy={verticalListSortingStrategy}>
           <ul className="space-y-4">
             {pinned.map((b) => (
@@ -188,18 +134,27 @@ export default function PinnedBookmarks({
                   onToggleSelected={toggleSelected}
                   editMode={editMode}
                   activeTags={activeTags}
-                  {...actions}
+                  onDelete={actions.onDelete}
+                  onPin={actions.onPin}
+                  onRetag={actions.onRetag}
+                  onEditRequest={actions.onEditRequest}
+                  onSaveInline={actions.onSaveInline}
+                  onTagClick={actions.onTagClick}
+                  onMoveToBook={onMoveToBook}
+                  canReorder={true}
                 />
               </li>
             ))}
           </ul>
         </SortableContext>
 
-        {/* ------------------------------------------------------------------ */}
-        {/* DragOverlay                                                       */}
-        {/* Lightweight clone for smooth drag pickup.                         */}
-        {/* ------------------------------------------------------------------ */}
-        <DragOverlay>
+        <DragOverlay
+          adjustScale={false}
+          dropAnimation={null}
+          style={{
+            transform: "translate(-4px, -10px)"
+          }}
+        >
           {activeBookmark ? (
             <BookmarkCard
               b={activeBookmark}
@@ -208,12 +163,14 @@ export default function PinnedBookmarks({
               onToggleSelected={() => {}}
               editMode="inline"
               activeTags={activeTags}
-              onEditRequest={() => {}}
-              onSaveInline={() => {}}
               onDelete={() => {}}
               onPin={() => {}}
               onRetag={() => {}}
+              onEditRequest={() => {}}
+              onSaveInline={() => {}}
               onTagClick={() => {}}
+              onMoveToBook={() => {}}
+              canReorder={true}
             />
           ) : null}
         </DragOverlay>

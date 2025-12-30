@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
@@ -10,9 +10,7 @@ import { Input } from "./ui/Input";
 import type { RichBookmark } from "../models/RichBookmark";
 import type { Book } from "../models/Book";
 
-import {
-  StarIcon as StarSolid
-} from "@heroicons/react/24/solid";
+import { StarIcon as StarSolid } from "@heroicons/react/24/solid";
 import {
   StarIcon as StarOutline,
   ClipboardIcon,
@@ -33,48 +31,32 @@ import {
  *   - Tag chips (clickable, highlight if active)
  *   - Favicon, title, URL, copy‑URL button
  *   - Book membership indicator
- *
- * The card is intentionally dense but readable to support scanning.
+ *   - "Move" menu with search, keyboard navigation
  */
 
-/**
- * Props Interface
- * ---------------
- * Defines all inputs required by BookmarkCard.
- */
 type Props = {
-  /** The bookmark data to display */
   b: RichBookmark;
 
-  /** Whether this bookmark is selected in multi‑select mode */
   selected: boolean;
-  /** Toggles selection state */
   onToggleSelected: (id: string) => void;
 
-  /** Inline vs modal editing mode */
   editMode: "modal" | "inline";
-  /** Requests modal editing of this bookmark */
   onEditRequest: (b: RichBookmark) => void;
-  /** Saves inline edits to the bookmark */
   onSaveInline: (b: RichBookmark) => void;
 
-  /** Deletes this bookmark */
   onDelete: (id: string) => void;
-
-  /** Toggles the pinned state of this bookmark */
   onPin: (id: string) => void;
-
-  /** Retags this bookmark (used for manual tagging) */
   onRetag: (b: RichBookmark) => void;
-
-  /** Called when a tag chip is clicked (for filtering logic) */
   onTagClick: (tag: string) => void;
 
-  /** All books (for displaying book membership) */
   books: Book[];
-
-  /** Active tag filters, used to visually highlight matching chips */
   activeTags: string[];
+
+  /** Moves this bookmark to a different book (or root) */
+  onMoveToBook: (id: string, bookId: string | null) => void;
+
+  /** Whether reordering is allowed (drag handle enabled) */
+  canReorder: boolean;
 };
 
 export default function BookmarkCard({
@@ -89,27 +71,14 @@ export default function BookmarkCard({
   onRetag,
   onTagClick,
   books,
-  activeTags
+  activeTags,
+  onMoveToBook,
+  canReorder
 }: Props) {
-  /**
-   * Inline editing state
-   * --------------------
-   * Only used when editMode === "inline".
-   */
   const [inlineTitle, setInlineTitle] = useState(b.title);
   const [inlineUrl, setInlineUrl] = useState(b.url);
   const [isEditingInline, setIsEditingInline] = useState(false);
 
-  /**
-   * useSortable
-   * -----------
-   * Integrates the card into the @dnd-kit sortable system:
-   *   - setNodeRef: ref for the draggable root
-   *   - listeners: props for a drag handle
-   *   - attributes: ARIA + DnD attributes
-   *   - transform/transition: current drag transform
-   *   - isDragging: boolean for visual state
-   */
   const {
     attributes,
     listeners,
@@ -119,22 +88,12 @@ export default function BookmarkCard({
     isDragging
   } = useSortable({ id: b.id });
 
-  /**
-   * style
-   * -----
-   * Applies drag transform and fade effect during drag.
-   */
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.6 : 1
   };
 
-  /**
-   * startEdit
-   * ----------
-   * Decides between modal editing and inline editing based on editMode.
-   */
   function startEdit() {
     if (editMode === "modal") {
       onEditRequest(b);
@@ -143,11 +102,6 @@ export default function BookmarkCard({
     }
   }
 
-  /**
-   * saveInline
-   * -----------
-   * Saves inline edits and updates the bookmark's timestamp.
-   */
   function saveInline() {
     onSaveInline({
       ...b,
@@ -158,21 +112,87 @@ export default function BookmarkCard({
     setIsEditingInline(false);
   }
 
-  /**
-   * copyUrl
-   * --------
-   * Copies the bookmark's URL to the clipboard.
-   */
   function copyUrl() {
+    if (!b.url) return;
     navigator.clipboard.writeText(b.url);
   }
 
-  /**
-   * book
-   * ----
-   * Finds the book this bookmark belongs to, if any.
-   */
   const book = books.find((bk) => bk.id === b.bookId);
+
+  /**
+   * Move menu state
+   * ---------------
+   * Searchable, keyboard‑navigable dropdown for moving a bookmark.
+   */
+  const [showMoveMenu, setShowMoveMenu] = useState(false);
+  const [moveSearch, setMoveSearch] = useState("");
+  const [focusedIndex, setFocusedIndex] = useState<number>(0);
+  const moveMenuRef = useRef<HTMLDivElement | null>(null);
+  const moveButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  const filteredBooks = books.filter((bk) =>
+    bk.name.toLowerCase().includes(moveSearch.toLowerCase())
+  );
+
+  const moveOptions: { label: string; targetId: string | null }[] = [
+    { label: "All Pages", targetId: null },
+    ...filteredBooks.map((bk) => ({ label: bk.name, targetId: bk.id }))
+  ];
+
+  useEffect(() => {
+    if (!showMoveMenu) return;
+
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        moveMenuRef.current &&
+        !moveMenuRef.current.contains(e.target as Node) &&
+        !moveButtonRef.current?.contains(e.target as Node)
+      ) {
+        setShowMoveMenu(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showMoveMenu]);
+
+  function handleMoveKeyDown(e: React.KeyboardEvent) {
+    if (moveOptions.length === 0) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setFocusedIndex((prev) => (prev + 1) % moveOptions.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setFocusedIndex((prev) =>
+        prev === 0 ? moveOptions.length - 1 : prev - 1
+      );
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const option = moveOptions[focusedIndex];
+      if (!option) return;
+      onMoveToBook(b.id, option.targetId);
+      setShowMoveMenu(false);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      setShowMoveMenu(false);
+    }
+  }
+
+  function openMoveMenu() {
+    setShowMoveMenu(true);
+    setMoveSearch("");
+    setFocusedIndex(0);
+  }
+
+  function toggleMoveMenu(e: React.MouseEvent) {
+    e.stopPropagation();
+    setShowMoveMenu((prev) => !prev);
+    if (!showMoveMenu) {
+      setMoveSearch("");
+      setFocusedIndex(0);
+    }
+  }
 
   return (
     <Card
@@ -189,12 +209,9 @@ export default function BookmarkCard({
       `}
       {...attributes}
     >
-      {/* ------------------------------------------------------------------ */}
-      {/* Main Row: checkbox + drag handle + favicon + content + actions     */}
-      {/* ------------------------------------------------------------------ */}
       <div className="flex justify-between items-start gap-3">
         <div className="flex gap-3 flex-1">
-          {/* Selection checkbox (multi‑select) */}
+          {/* Selection checkbox */}
           <input
             type="checkbox"
             className="mt-1"
@@ -204,21 +221,30 @@ export default function BookmarkCard({
 
           {/* Drag handle */}
           <button
-            className="mt-1 cursor-grab active:cursor-grabbing text-emperor-muted hover:text-emperor-text"
-            {...listeners}
+            className={`mt-1 text-emperor-muted hover:text-emperor-text
+              ${
+                canReorder
+                  ? "cursor-grab active:cursor-grabbing"
+                  : "cursor-not-allowed opacity-60"
+              }`}
+            {...(canReorder ? listeners : {})}
+            title={
+              canReorder
+                ? "Reorder within this book"
+                : "Reordering is disabled on All Pages"
+            }
           >
             <Bars3Icon className="w-4 h-4" />
           </button>
 
-          {/* Favicon (if present) */}
+          {/* Favicon */}
           {b.faviconUrl && (
             <img src={b.faviconUrl} className="w-5 h-5 mt-1" />
           )}
 
-          {/* Core bookmark content */}
+          {/* Content */}
           <div className="flex-1">
             {isEditingInline ? (
-              /* Inline editing mode */
               <div className="space-y-2">
                 <Input
                   value={inlineTitle}
@@ -242,9 +268,7 @@ export default function BookmarkCard({
                 </div>
               </div>
             ) : (
-              /* Display mode */
               <>
-                {/* Title (clickable, opens in new tab) */}
                 <a
                   href={b.url}
                   target="_blank"
@@ -254,18 +278,17 @@ export default function BookmarkCard({
                   {b.title}
                 </a>
 
-                {/* URL with copy button (only visible on hover) */}
                 <div className="text-sm text-emperor-muted flex items-center gap-2">
                   {b.url}
                   <button
                     onClick={copyUrl}
                     className="opacity-0 group-hover:opacity-100 transition"
+                    title="Copy URL"
                   >
                     <ClipboardIcon className="w-4 h-4 text-emperor-muted hover:text-emperor-text" />
                   </button>
                 </div>
 
-                {/* Book membership indicator (if in a book) */}
                 {book && (
                   <div className="text-xs text-emperor-muted mt-1">
                     In <span className="font-medium">{book.name}</span>
@@ -276,7 +299,6 @@ export default function BookmarkCard({
           </div>
         </div>
 
-        {/* Right-side actions (hidden while inline editing) */}
         {!isEditingInline && (
           <div className="flex items-center gap-3">
             {/* Pin / Unpin */}
@@ -291,15 +313,79 @@ export default function BookmarkCard({
               )}
             </button>
 
-            {/* Other actions */}
+            {/* Actions */}
             <div className="flex flex-wrap gap-2 justify-end">
               <Button size="sm" variant="subtle" onClick={() => onRetag(b)}>
                 Retag
               </Button>
+
+              {/* Move menu */}
+              <div className="relative">
+                <Button
+                  ref={moveButtonRef}
+                  size="sm"
+                  variant="subtle"
+                  onClick={toggleMoveMenu}
+                >
+                  Move
+                </Button>
+
+                {showMoveMenu && (
+                  <div
+                    ref={moveMenuRef}
+                    className="absolute right-0 mt-1 w-56 bg-emperor-surfaceStrong border border-emperor-border rounded-card shadow-lg z-50 origin-top-right transform scale-95 opacity-0 animate-emperor-dropdown"
+                    onKeyDown={handleMoveKeyDown}
+                    tabIndex={-1}
+                  >
+                    <div className="p-2 border-b border-emperor-border">
+                      <Input
+                        value={moveSearch}
+                        onChange={(e) => {
+                          setMoveSearch(e.target.value);
+                          setFocusedIndex(0);
+                        }}
+                        placeholder="Search books…"
+                        className="text-sm"
+                      />
+                    </div>
+                    <div className="max-h-64 overflow-y-auto py-1">
+                      {moveOptions.length === 0 ? (
+                        <div className="px-3 py-2 text-xs text-emperor-muted">
+                          No books match.
+                        </div>
+                      ) : (
+                        moveOptions.map((option, index) => (
+                          <button
+                            key={`${option.targetId ?? "root"}`}
+                            className={`w-full text-left px-3 py-2 text-sm rounded
+                              ${
+                                index === focusedIndex
+                                  ? "bg-emperor-surface text-emperor-text"
+                                  : "hover:bg-emperor-surface text-emperor-muted"
+                              }`}
+                            onClick={() => {
+                              onMoveToBook(b.id, option.targetId);
+                              setShowMoveMenu(false);
+                            }}
+                            onMouseEnter={() => setFocusedIndex(index)}
+                          >
+                            {option.label}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <Button size="sm" variant="subtle" onClick={startEdit}>
                 Edit
               </Button>
-              <Button size="sm" variant="danger" onClick={() => onDelete(b.id)}>
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={() => onDelete(b.id)}
+              >
                 Delete
               </Button>
             </div>
@@ -307,9 +393,6 @@ export default function BookmarkCard({
         )}
       </div>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Tags Row: chips reflecting tag labels, clickable for filtering     */}
-      {/* ------------------------------------------------------------------ */}
       <div className="mt-3 flex items-center justify-between">
         <div className="flex flex-wrap gap-2">
           {b.tags?.map((t) => (
@@ -322,12 +405,11 @@ export default function BookmarkCard({
           ))}
         </div>
 
-        {/* Timestamp */}
         <div className="text-xs text-emperor-muted ml-4">
-          {new Date(b.createdAt).toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric'
+          {new Date(b.createdAt).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric"
           })}
         </div>
       </div>

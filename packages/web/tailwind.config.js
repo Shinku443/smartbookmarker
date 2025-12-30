@@ -25,7 +25,16 @@ module.exports = {
       borderRadius: {
         card: "8px",
         pill: "999px"
-      }
+      },
+      keyframes: {
+        'emperor-dropdown': {
+          '0%': { opacity: 0, transform: 'scale(0.95)' },
+          '100%': { opacity: 1, transform: 'scale(1)' },
+        },
+      },
+      animation: {
+        'emperor-dropdown': 'emperor-dropdown 120ms ease-out forwards',
+      },
     }
   },
   plugins: []

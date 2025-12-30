@@ -3,6 +3,7 @@ import { Button } from "./ui/Button";
 import { Input } from "./ui/Input";
 import BookTree from "./BookTree";
 import type { Book } from "../models/Book";
+import type { RichBookmark } from "../models/RichBookmark";
 
 /**
  * Sidebar.tsx
@@ -44,6 +45,8 @@ type Props = {
 
   /** All books (groups) in the library */
   books: Book[];
+  /** All bookmarks in the library (for counts in BookTree) */
+  bookmarks: RichBookmark[];
   /** Currently active book ID (null = "All Pages") */
   activeBookId: string | null;
   /** Sets the active book filter */
@@ -68,6 +71,13 @@ type Props = {
 
   /** Whether a bookmark is currently being dragged (for visual feedback) */
   isDraggingBookmark: boolean;
+
+  /** BookTree advanced actions */
+  onRenameBook?: (bookId: string, newName: string) => void;
+  onChangeBookIcon?: (bookId: string, icon: string) => void;
+  onDeleteBook?: (bookId: string) => void;
+  onOpenAllBookmarks?: (bookId: string) => void;
+  onShareBook?: (bookId: string) => void;
 };
 
 /**
@@ -90,6 +100,7 @@ export default function Sidebar({
   activeTags,
   setActiveTags,
   books,
+  bookmarks,
   activeBookId,
   setActiveBookId,
   onCreateBook,
@@ -99,7 +110,12 @@ export default function Sidebar({
   onExport,
   onOpenSettings,
   onOpenBookManager,
-  isDraggingBookmark
+  isDraggingBookmark,
+  onRenameBook,
+  onChangeBookIcon,
+  onDeleteBook,
+  onOpenAllBookmarks,
+  onShareBook
 }: Props) {
   /**
    * toggleTag
@@ -159,12 +175,18 @@ export default function Sidebar({
 
           <BookTree
             books={books}
+            bookmarks={bookmarks}
             activeBookId={activeBookId}
             onBookClick={setActiveBookId}
             onCreateBook={onCreateBook}
             onMoveBook={onMoveBook}
             onBookmarkDrop={onBookmarkDrop}
             isDraggingBookmark={isDraggingBookmark}
+            onRenameBook={onRenameBook}
+            onChangeBookIcon={onChangeBookIcon}
+            onDeleteBook={onDeleteBook}
+            onOpenAllBookmarks={onOpenAllBookmarks}
+            onShareBook={onShareBook}
           />
         </div>
 

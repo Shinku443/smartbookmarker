@@ -197,8 +197,19 @@ export default function BookManagerModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
-      <Card className="relative w-full max-w-lg bg-emperor-surfaceStrong p-6">
-
+      <Card
+        className="
+          relative 
+          w-full max-w-lg 
+          bg-emperor-surfaceStrong 
+          border border-emperor-border 
+          rounded-lg 
+          shadow-xl 
+          flex flex-col 
+          max-h-[80vh] 
+          overflow-hidden
+        "
+      >
         {/* Floating + button */}
         <button
           onClick={() => setIsCreating(true)}
@@ -209,39 +220,41 @@ export default function BookManagerModal({
         </button>
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between p-4 border-b border-emperor-border">
           <h2 className="text-lg font-semibold">Manage Books</h2>
           <Button size="sm" variant="subtle" onClick={onClose}>
             Close
           </Button>
         </div>
 
-        {/* Sortable list */}
-        <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-          <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-            <div>
-              {books.map((b) => (
-                <SortableBookRow
-                  key={b.id}
-                  book={b}
-                  onRename={(name) => onRenameBook(b.id, name)}
-                  onDelete={() => onDeleteBook(b.id)}
-                />
-              ))}
+        {/* Scrollable content */}
+        <div className="flex-1 overflow-y-auto p-4">
+          <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={ids} strategy={verticalListSortingStrategy}>
+              <div>
+                {books.map((b) => (
+                  <SortableBookRow
+                    key={b.id}
+                    book={b}
+                    onRename={(name) => onRenameBook(b.id, name)}
+                    onDelete={() => onDeleteBook(b.id)}
+                  />
+                ))}
 
-              {/* Inline creation row at bottom */}
-              {isCreating && (
-                <InlineCreateRow
-                  onSubmit={(name) => {
-                    onCreateBook(name, null);
-                    setIsCreating(false);
-                  }}
-                  onCancel={() => setIsCreating(false)}
-                />
-              )}
-            </div>
-          </SortableContext>
-        </DndContext>
+                {/* Inline creation row at bottom */}
+                {isCreating && (
+                  <InlineCreateRow
+                    onSubmit={(name) => {
+                      onCreateBook(name, null);
+                      setIsCreating(false);
+                    }}
+                    onCancel={() => setIsCreating(false)}
+                  />
+                )}
+              </div>
+            </SortableContext>
+          </DndContext>
+        </div>
       </Card>
     </div>
   );

@@ -5,7 +5,10 @@ import {
   DragEndEvent,
   DragStartEvent,
   DragCancelEvent,
-  DragOverlay
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors
 } from "@dnd-kit/core";
 import { arrayMove } from "@dnd-kit/sortable";
 
@@ -52,7 +55,6 @@ import { useTheme } from "./hooks/useTheme";
  *
  * BookmarkList handles:
  *   - Filtering (search/tags/book)
- *   - Drag‑and‑drop reordering
  *
  * PinnedBookmarks handles:
  *   - Independent pinned ordering
@@ -107,7 +109,7 @@ export default function App() {
   /**
    * Theme system
    * ------------
-   * Controls dark/light/system mode and edit mode preference.
+   * Controls dark/light/system mode and accent color.
    */
   const { theme, setTheme } = useTheme();
 
@@ -129,8 +131,10 @@ export default function App() {
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showSettings, setShowSettings] = useState(false);
-  const [editMode, setEditMode] = useState<"modal" | "inline">("modal");
-  const [editingBookmark, setEditingBookmark] = useState<RichBookmark | null>(null);
+  const [editMode, setEditMode] = useState<"modal" | "inline">("inline");
+  const [editingBookmark, setEditingBookmark] = useState<RichBookmark | null>(
+    null
+  );
   const [showAddModal, setShowAddModal] = useState(false);
 
   // ⭐ Book Manager modal (the only modal for book creation)
@@ -140,10 +144,23 @@ export default function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
 
   /**
+   * DnD Sensors
+   * -----------
+   * Pointer sensor with activation constraint so drags start only
+   * after small movement. Prevents accidental drags on click.
+   */
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5
+      }
+    })
+  );
+
+  /**
    * Inline book creation (BookTree only)
    * ------------------------------------
    * BookTree handles inline creation of books/sub‑books.
-   * This function directly calls addBook() with no modal.
    */
   function handleInlineCreateBook(parentId: string | null, name: string) {
     addBook(name, parentId);
@@ -152,7 +169,6 @@ export default function App() {
   /**
    * Modal book creation (Sidebar only)
    * ----------------------------------
-   * Sidebar "Manage" button opens Book Manager modal.
    */
   function handleModalCreateBook() {
     setShowBookManager(true);
@@ -162,7 +178,6 @@ export default function App() {
    * tags
    * ----
    * Collect all unique tag labels across pages.
-   * Used by Sidebar for tag filtering controls.
    */
   const tags = useMemo(() => {
     const map = new Map<string, number>();
@@ -177,16 +192,7 @@ export default function App() {
   /**
    * sortedByOrder
    * --------------
-   * Produces a list of pages sorted according to:
-   *
-   *   - activeBookId → use that book's order array
-   *   - no book selected → use rootOrder (ungrouped first)
-   *
-   * This list is the ordered, unfiltered source of truth for the main list.
-   *
-   * IMPORTANT:
-   * Filtering (search/tags/book) happens inside BookmarkList.
-   * This ensures drag‑and‑drop always uses the full ordered list.
+   * Ordered, unfiltered source of truth for the main list.
    */
   const sortedByOrder = useMemo(() => {
     const idToBookmark = new Map(bookmarks.map((b) => [b.id, b]));
@@ -230,9 +236,6 @@ export default function App() {
    * sortedPinned
    * -------------
    * Pinned pages have their own ordering array (pinnedOrder).
-   * This produces a sorted list for the Pinned section.
-   *
-   * PinnedBookmarks handles its own drag‑and‑drop reordering.
    */
   const sortedPinned = useMemo(() => {
     const pinned = bookmarks.filter((b) => b.pinned);
@@ -254,8 +257,6 @@ export default function App() {
   /**
    * Import / Export helpers
    * -----------------------
-   * handleImport → imports Netscape HTML bookmarks.
-   * handleExport → exports all data as JSON.
    */
   function handleImport(e: any) {
     const file = e.target.files?.[0];
@@ -281,7 +282,6 @@ export default function App() {
   /**
    * handleInlineSave
    * ----------------
-   * Saves inline bookmark edits.
    */
   function handleInlineSave(updated: RichBookmark) {
     updateBookmark(updated);
@@ -290,7 +290,6 @@ export default function App() {
   /**
    * handleRetag
    * -----------
-   * Applies a new user tag to a given bookmark.
    */
   function handleRetag(b: RichBookmark, tag?: string) {
     const newTag = tag ?? prompt("Tag to apply?");
@@ -308,23 +307,22 @@ export default function App() {
   /**
    * handleTagClick
    * --------------
-   * Toggle a tag in the activeTags array (multi‑select, OR logic).
    */
   function handleTagClick(tag: string) {
     setActiveTags((prev) =>
-      prev.includes(tag)
-        ? prev.filter((t) => t !== tag)
-        : [...prev, tag]
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
     );
   }
 
   /**
    * handleReorderMain
    * ------------------
-   * Reorders pages either inside a book or in the root context.
-   * The IDs array always comes from the ordered, unfiltered list.
+   * NOTE:
+   *   When activeBookId is null (All Pages view), we do not attempt
+   *   to reorder across different books.
    */
   function handleReorderMain(ids: string[]) {
+    if (!activeBookId) return;
     reorderBookPages(activeBookId, ids);
   }
 
@@ -337,15 +335,56 @@ export default function App() {
   }
 
   /**
+   * Book actions for BookTree menu
+   * ------------------------------
+   */
+  function handleRenameBook(bookId: string, newName: string) {
+    renameBook(bookId, newName);
+  }
+
+  function handleChangeBookIcon(bookId: string, icon: string) {
+    console.log("Change icon for book", bookId, "to", icon);
+  }
+
+  function handleDeleteBook(bookId: string) {
+    deleteBook(bookId);
+    if (activeBookId === bookId) {
+      setActiveBookId(null);
+    }
+  }
+
+  function openAllBookmarksInBook(bookId: string) {
+    const pages = bookmarks.filter((b) => b.bookId === bookId);
+    for (const page of pages) {
+      if (!page.url) continue;
+      window.open(page.url, "_blank", "noopener,noreferrer");
+    }
+  }
+
+  function shareBook(bookId: string) {
+    const book = books.find((b) => b.id === bookId);
+    if (!book) return;
+    const shareData = {
+      title: book.name,
+      text: `Book: ${book.name}`,
+      url: window.location.href
+    };
+    if ((navigator as any).share) {
+      (navigator as any).share(shareData).catch(() => {});
+    } else {
+      alert(`Share "${book.name}"`);
+    }
+  }
+
+  /**
    * Drag event handlers
    * -------------------
-   * Handle drag events for both bookmark reordering and bookmark-to-book drops.
    */
   function handleDragStart(event: DragStartEvent) {
     const draggedId = event.active.id as string;
     setActiveId(draggedId);
 
-    const isDraggedItemABook = books.some(b => b.id === draggedId);
+    const isDraggedItemABook = books.some((b) => b.id === draggedId);
     setIsDraggingBookmark(!isDraggedItemABook);
   }
 
@@ -360,44 +399,41 @@ export default function App() {
     const draggedId = active.id as string;
     const targetId = over.id as string;
 
-    const isDraggedBook = books.some(b => b.id === draggedId);
+    const isDraggedBook = books.some((b) => b.id === draggedId);
 
-    // -----------------------------
     // Book drag handling
-    // -----------------------------
     if (isDraggedBook) {
       if (draggedId === targetId) return;
 
-      // Dropped on root-level containers (All Pages row or outer zone)
       if (targetId === "library-root" || targetId === "library-root-zone") {
         moveBook(draggedId, null);
         return;
       }
 
-      // Dropped on another book
-      const targetBook = books.find(b => b.id === targetId);
+      const targetBook = books.find((b) => b.id === targetId);
       if (!targetBook) return;
 
       moveBook(draggedId, targetBook.id);
       return;
     }
 
-    // -----------------------------
     // Bookmark drag handling
-    // -----------------------------
-    // Explicit drop on "All Pages" → move bookmark to root
     if (targetId === "library-root") {
       assignBookmarkToBook(draggedId, null);
       return;
     }
 
-    const isTargetABook = books.some(b => b.id === targetId);
+    const isTargetABook = books.some((b) => b.id === targetId);
     if (isTargetABook) {
       assignBookmarkToBook(draggedId, targetId);
       return;
     }
 
-    // Reordering bookmarks
+    // Main list reordering (only when scoped to a book)
+    if (!activeBookId) {
+      return;
+    }
+
     const ids = sortedByOrder.map((b) => b.id);
     const oldIndex = ids.indexOf(draggedId);
     const newIndex = ids.indexOf(targetId);
@@ -438,8 +474,11 @@ export default function App() {
     }));
   }, [books, bookmarks]);
 
+  const canReorderMain = activeBookId !== null;
+
   return (
     <DndContext
+      sensors={sensors}
       collisionDetection={closestCenter}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
@@ -455,6 +494,7 @@ export default function App() {
             activeTags={activeTags}
             setActiveTags={setActiveTags}
             books={books}
+            bookmarks={bookmarks}
             activeBookId={activeBookId}
             setActiveBookId={setActiveBookId}
             onCreateBook={handleInlineCreateBook}
@@ -463,8 +503,13 @@ export default function App() {
             onImport={handleImport}
             onExport={handleExport}
             onOpenSettings={() => setShowSettings(true)}
-            onOpenBookManager={handleModalCreateBook} // ⭐ Sidebar → Book Manager modal
+            onOpenBookManager={handleModalCreateBook}
             isDraggingBookmark={isDraggingBookmark}
+            onRenameBook={handleRenameBook}
+            onChangeBookIcon={handleChangeBookIcon}
+            onDeleteBook={handleDeleteBook}
+            onOpenAllBookmarks={openAllBookmarksInBook}
+            onShareBook={shareBook}
           />
         }
       >
@@ -474,10 +519,10 @@ export default function App() {
             setTheme={setTheme}
             editMode={editMode}
             setEditMode={setEditMode}
+            onClose={() => setShowSettings(false)}
           />
         ) : (
           <>
-            {/* Pinned section */}
             <PinnedBookmarks
               bookmarks={sortedPinned}
               books={books}
@@ -492,16 +537,15 @@ export default function App() {
               onSaveInline={handleInlineSave}
               onTagClick={handleTagClick}
               onReorderPinned={handleReorderPinned}
+              onMoveToBook={handleMoveToBook}
             />
 
-            {/* Breadcrumb navigation */}
             <Breadcrumb
               books={books}
               activeBookId={activeBookId}
               onBookClick={setActiveBookId}
             />
 
-            {/* Main list */}
             <BookmarkList
               bookmarks={sortedByOrder}
               books={books}
@@ -511,6 +555,8 @@ export default function App() {
               search={search}
               activeTags={activeTags}
               activeBookId={activeBookId}
+              canReorder={canReorderMain}
+              activeDragId={activeId}
               onDelete={deleteBookmark}
               onPin={togglePin}
               onRetag={handleRetag}
@@ -524,7 +570,6 @@ export default function App() {
         )}
       </Layout>
 
-      {/* Edit Page Modal */}
       {editingBookmark && editMode === "modal" && (
         <EditBookmarkModal
           bookmark={editingBookmark}
@@ -535,7 +580,6 @@ export default function App() {
         />
       )}
 
-      {/* Add Page Modal */}
       {showAddModal && (
         <AddBookmarkModal
           books={books}
@@ -545,25 +589,33 @@ export default function App() {
         />
       )}
 
-      {/* Book Manager Modal */}
       {showBookManager && (
         <BookManagerModal
           books={booksWithCounts}
           onReorderBooks={reorderBooks}
           onRenameBook={renameBook}
           onDeleteBook={deleteBook}
-          onCreateBook={addBook} // ⭐ Modal creation only
+          onCreateBook={addBook}
           onClose={() => setShowBookManager(false)}
         />
       )}
 
-      {/* DragOverlay */}
-      <DragOverlay>
+      <DragOverlay
+        adjustScale={false}
+        dropAnimation={null}
+        style={{
+          transform: "translate(-4px, -10px)"
+        }}
+      >
         {activeBookmark ? (
           <div className="rotate-3 opacity-90">
             <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg border max-w-md">
-              <h3 className="font-medium text-sm truncate">{activeBookmark.title}</h3>
-              <p className="text-xs text-gray-500 truncate">{activeBookmark.url}</p>
+              <h3 className="font-medium text-sm truncate">
+                {activeBookmark.title}
+              </h3>
+              <p className="text-xs text-gray-500 truncate">
+                {activeBookmark.url}
+              </p>
             </div>
           </div>
         ) : null}

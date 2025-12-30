@@ -16,6 +16,22 @@ import { useEffect, useState } from "react";
 export type ThemeMode = "dark" | "light" | "system";
 
 /**
+ * Extended theme object
+ * ---------------------
+ * Adds support for accent color while remaining backward-compatible
+ * with the previous string-only storage format.
+ */
+export type EmperorTheme = {
+  mode: ThemeMode;
+  accent: string;
+};
+
+const DEFAULT_THEME: EmperorTheme = {
+  mode: "system",
+  accent: "#fbbf24" // Emperor gold as a sensible default accent
+};
+
+/**
  * useTheme Hook
  * -------------
  * Manages theme state and applies theme classes to the document.
@@ -25,9 +41,26 @@ export type ThemeMode = "dark" | "light" | "system";
  */
 export function useTheme() {
   // Initialize theme from localStorage or default to system
-  const [theme, setTheme] = useState<ThemeMode>(() => {
-    if (typeof window === "undefined") return "system";
-    return (localStorage.getItem("emperor-theme") as ThemeMode) || "system";
+  const [theme, setTheme] = useState<EmperorTheme>(() => {
+    if (typeof window === "undefined") return DEFAULT_THEME;
+
+    const raw = localStorage.getItem("emperor-theme");
+
+    // Backwards compatible: old string-only format ("dark" | "light" | "system")
+    if (raw === "dark" || raw === "light" || raw === "system") {
+      return { ...DEFAULT_THEME, mode: raw };
+    }
+
+    // New format: JSON-serialized EmperorTheme object
+    try {
+      const parsed = JSON.parse(raw || "{}");
+      return {
+        ...DEFAULT_THEME,
+        ...parsed
+      };
+    } catch {
+      return DEFAULT_THEME;
+    }
   });
 
   // Detect current system theme preference
@@ -36,8 +69,8 @@ export function useTheme() {
     window.matchMedia("(prefers-color-scheme: dark)").matches;
 
   // Resolve actual theme: if system, use system preference, else use selected theme
-  const resolvedTheme =
-    theme === "system" ? (systemPrefersDark ? "dark" : "light") : theme;
+  const resolvedTheme: ThemeMode =
+    theme.mode === "system" ? (systemPrefersDark ? "dark" : "light") : theme.mode;
 
   /**
    * Theme Application Effect
@@ -59,8 +92,11 @@ export function useTheme() {
       root.classList.remove("light");
     }
 
-    // Persist theme choice to localStorage
-    localStorage.setItem("emperor-theme", theme);
+    // Apply accent color via CSS variable
+    root.style.setProperty("--emperor-accent", theme.accent);
+
+    // Persist theme choice to localStorage (full object)
+    localStorage.setItem("emperor-theme", JSON.stringify(theme));
   }, [theme, resolvedTheme]);
 
   return { theme, setTheme, resolvedTheme };

@@ -1,90 +1,162 @@
-import { Card } from "./ui/Card";
-import { Input } from "./ui/Input";
+import React from "react";
+import type { EmperorTheme, ThemeMode } from "../hooks/useTheme";
 import { Button } from "./ui/Button";
-import { ThemeMode } from "../hooks/useTheme";
 
 /**
  * SettingsScreen.tsx
- * ------------------
- * The settings screen component for application configuration.
- * Provides options for theme selection, edit mode preference, and data backup/restore.
- * Accessible through the sidebar settings button.
+ * -------------------
+ * Settings UI for the Emperor Library application.
+ *
+ * Responsibilities:
+ *   - Control theme mode (dark / light / system)
+ *   - Control accent color
+ *   - Control edit mode (inline vs modal)
+ *
+ * This component is fully controlled by props and contains no persistent state.
  */
 
-/**
- * SettingsProps Interface
- * -----------------------
- * Defines the properties for the SettingsScreen component.
- */
-type SettingsProps = {
-  /** Current theme mode */
-  theme: ThemeMode;
-  /** Function to update theme mode */
-  setTheme: (t: ThemeMode) => void;
-  /** Current edit mode preference */
+type Props = {
+  /** Current theme object (mode + accent color) */
+  theme: EmperorTheme;
+  /** Updates the theme (mode and/or accent) */
+  setTheme: (next: EmperorTheme) => void;
+
+  /** Current edit mode for pages */
   editMode: "modal" | "inline";
-  /** Function to update edit mode preference */
-  setEditMode: (m: "modal" | "inline") => void;
+  /** Updates the edit mode */
+  setEditMode: (mode: "modal" | "inline") => void;
+
+  /** Called to close the settings screen and return to the main UI */
+  onClose: () => void;
 };
 
 /**
  * SettingsScreen Component
  * ------------------------
- * Renders the application settings interface with theme and edit mode controls.
- * Also includes placeholder for backup/restore functionality.
- *
- * @param props - The component props
- * @returns JSX element for the settings screen
+ * Renders theme and edit mode controls.
+ * Includes a color picker for the accent color.
  */
 export default function SettingsScreen({
   theme,
   setTheme,
   editMode,
-  setEditMode
-}: SettingsProps) {
+  setEditMode,
+  onClose
+}: Props) {
+  function handleModeChange(mode: ThemeMode) {
+    setTheme({ ...theme, mode });
+  }
+
+  function handleAccentChange(value: string) {
+    setTheme({ ...theme, accent: value });
+  }
+
+  function handleResetAccent() {
+    setTheme({ ...theme, accent: "#fbbf24" });
+  }
+
   return (
-    <Card className="max-w-xl mx-auto">
-      <h2 className="text-xl font-semibold mb-4">Settings</h2>
+    <div className="h-full flex flex-col p-6 space-y-8">
+      {/* Header row with Back control */}
+      <div className="flex items-center justify-between mb-2">
+        <Button size="sm" variant="subtle" onClick={onClose}>
+          ← Back
+        </Button>
+        <span className="text-sm text-emperor-muted">Settings</span>
+      </div>
 
-      <div className="space-y-4">
-        {/* Theme selection */}
-        <div>
-          <label className="block text-sm mb-1">Theme</label>
-          <select
-            className="bg-emperor-surfaceStrong border border-emperor-border rounded-card px-3 py-2 w-full"
-            value={theme}
-            onChange={(e) => setTheme(e.target.value as ThemeMode)}
-          >
-            <option value="system">System</option>
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
-          </select>
-        </div>
+      {/* Theme section */}
+      <section>
+        <h2 className="text-lg font-semibold mb-2">Theme</h2>
+        <p className="text-sm text-emperor-muted mb-4">
+          Choose how Emperor looks and feels across your library.
+        </p>
 
-        {/* Edit mode preference */}
-        <div>
-          <label className="block text-sm mb-1">Edit mode</label>
-          <select
-            className="bg-emperor-surfaceStrong border border-emperor-border rounded-card px-3 py-2 w-full"
-            value={editMode}
-            onChange={(e) => setEditMode(e.target.value as "modal" | "inline")}
-          >
-            <option value="modal">Modal (recommended)</option>
-            <option value="inline">Inline</option>
-          </select>
-        </div>
+        <div className="flex flex-col gap-4">
+          {/* Theme mode */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">Mode</h3>
+            <div className="flex gap-2">
+              {(
+                [
+                  { label: "System", value: "system" },
+                  { label: "Light", value: "light" },
+                  { label: "Dark", value: "dark" }
+                ] as { label: string; value: ThemeMode }[]
+              ).map((option) => {
+                const isActive = theme.mode === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    className={`text-sm px-3 py-1 rounded-full border ${
+                      isActive
+                        ? "bg-emperor-surfaceStrong border-emperor-accent text-emperor-text"
+                        : "border-emperor-border text-emperor-muted hover:bg-emperor-surface"
+                    }`}
+                    onClick={() => handleModeChange(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-        {/* Backup/Restore section - placeholder for future implementation */}
-        <div>
-          <label className="block text-sm mb-1">Backup / Restore</label>
-          <div className="flex gap-2">
-            <Button variant="secondary" className="flex-1">
-              Download JSON
-            </Button>
-            <Input type="file" className="flex-1" />
+          {/* Accent color */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">Accent color</h3>
+            <p className="text-xs text-emperor-muted mb-2">
+              Used for highlights, active states, and important actions.
+            </p>
+            <div className="flex items-center gap-3">
+              <input
+                type="color"
+                value={theme.accent}
+                onChange={(e) => handleAccentChange(e.target.value)}
+                className="w-10 h-10 rounded cursor-pointer border border-emperor-border bg-transparent"
+              />
+              <span className="text-xs text-emperor-muted">
+                {theme.accent.toUpperCase()}
+              </span>
+              <Button size="sm" variant="subtle" onClick={handleResetAccent}>
+                Reset
+              </Button>
+            </div>
           </div>
         </div>
-      </div>
-    </Card>
+      </section>
+
+      {/* Edit mode section */}
+      <section>
+        <h2 className="text-lg font-semibold mb-2">Editing</h2>
+        <p className="text-sm text-emperor-muted mb-4">
+          Choose how you prefer to edit pages.
+        </p>
+
+        <div className="flex gap-2">
+          {(
+            [
+              { label: "Modal", value: "modal" },
+              { label: "Inline", value: "inline" }
+            ] as const
+          ).map((option) => {
+            const isActive = editMode === option.value;
+            return (
+              <button
+                key={option.value}
+                className={`text-sm px-3 py-1 rounded-full border ${
+                  isActive
+                    ? "bg-emperor-surfaceStrong border-emperor-accent text-emperor-text"
+                    : "border-emperor-border text-emperor-muted hover:bg-emperor-surface"
+                }`}
+                onClick={() => setEditMode(option.value)}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      </section>
+    </div>
   );
 }
