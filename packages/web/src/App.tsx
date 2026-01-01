@@ -16,11 +16,12 @@ import Layout from "./components/Layout";
 import Sidebar from "./components/Sidebar";
 import BookmarkList from "./components/BookmarkList";
 import PinnedBookmarks from "./components/PinnedBookmarks";
-import EditBookmarkModal from "./components/EditBookmarkModal";
-import AddBookmarkModal from "./components/AddBookmarkModal";
+import EditBookmarkModal from "./components/modals/EditBookmarkModal";
+import AddBookmarkModal from "./components/modals/AddBookmarkModal";
 import SettingsScreen from "./components/SettingsScreen";
-import BookManagerModal from "./components/BookManagerModal";
+import BookManagerModal from "./components/modals/BookManagerModal";
 import Breadcrumb from "./components/Breadcrumb";
+import BookmarkCard from "./components/BookmarkCard";
 
 import { useBookmarks } from "./hooks/useBookmarks";
 import type { RichBookmark } from "./models/RichBookmark";
@@ -46,8 +47,8 @@ import { useTheme } from "./hooks/useTheme";
  *       • Book Manager modal
  *       • Sidebar navigation
  *
- * ARCHITECTURE NOTE
- * -----------------
+ * DESIGN NOTE
+ * -----------
  * App.tsx provides:
  *   - Ordered, unfiltered lists (sortedByOrder, sortedPinned)
  *   - Global state (search, activeTags, activeBookId)
@@ -81,6 +82,10 @@ export default function App() {
    *   - rootOrder (ungrouped ordering)
    *   - pinnedOrder (pinned ordering)
    *   - CRUD + ordering helpers
+   *
+   * NOTE:
+   *   The raw addBook signature comes from the hook. We adapt it to the
+   *   UI‑facing signature (parentId, name) via a small wrapper below.
    */
   const {
     bookmarks,
@@ -95,7 +100,7 @@ export default function App() {
     updateBookmark,
     importHtml,
 
-    addBook,
+    addBook: rawAddBook,
     renameBook,
     deleteBook,
     moveBook,
@@ -107,6 +112,20 @@ export default function App() {
   } = useBookmarks();
 
   /**
+   * addBook
+   * -------
+   * UI‑facing signature:
+   *   (parentId: string | null, name: string) => void
+   *
+   * This matches:
+   *   - BookTree onCreateBook
+   *   - Sidebar onCreateBook
+   */
+  function addBook(parentId: string | null, name: string): void {
+    (rawAddBook as any)(name, parentId);
+  }
+
+  /**
    * Theme system
    * ------------
    * Controls dark/light/system mode and accent color.
@@ -116,15 +135,6 @@ export default function App() {
   /**
    * UI state
    * --------
-   * search        → text query
-   * activeTags    → tag filters (multi‑select, OR logic)
-   * activeBookId  → current book context
-   * selectedIds   → multi‑select for bulk actions
-   * showSettings  → settings screen
-   * editMode      → inline vs modal editing
-   * editingBookmark → currently edited page (modal)
-   * showAddModal  → add page modal
-   * showBookManager → book manager modal
    */
   const [search, setSearch] = useState("");
   const [activeTags, setActiveTags] = useState<string[]>([]);
@@ -136,8 +146,6 @@ export default function App() {
     null
   );
   const [showAddModal, setShowAddModal] = useState(false);
-
-  // ⭐ Book Manager modal (the only modal for book creation)
   const [showBookManager, setShowBookManager] = useState(false);
 
   const [isDraggingBookmark, setIsDraggingBookmark] = useState(false);
@@ -158,23 +166,6 @@ export default function App() {
   );
 
   /**
-   * Inline book creation (BookTree only)
-   * ------------------------------------
-   * BookTree handles inline creation of books/sub‑books.
-   */
-  function handleInlineCreateBook(parentId: string | null, name: string) {
-    addBook(name, parentId);
-  }
-
-  /**
-   * Modal book creation (Sidebar only)
-   * ----------------------------------
-   */
-  function handleModalCreateBook() {
-    setShowBookManager(true);
-  }
-
-  /**
    * tags
    * ----
    * Collect all unique tag labels across pages.
@@ -190,9 +181,22 @@ export default function App() {
   }, [bookmarks]);
 
   /**
+   * handleActivateBook
+   * ------------------
+   * Clicking a book label in BookmarkCard should:
+   *   - Set activeBookId
+   *   - Clear multi‑select selection
+   */
+  function handleActivateBook(bookId: string) {
+    setActiveBookId(bookId);
+    setSelectedIds([]);
+  }
+
+  /**
    * sortedByOrder
    * --------------
    * Ordered, unfiltered source of truth for the main list.
+   * Book scoping happens later in BookmarkList.
    */
   const sortedByOrder = useMemo(() => {
     const idToBookmark = new Map(bookmarks.map((b) => [b.id, b]));
@@ -255,8 +259,9 @@ export default function App() {
   }, [bookmarks, pinnedOrder]);
 
   /**
-   * Import / Export helpers
-   * -----------------------
+   * handleImport / handleExport
+   * ---------------------------
+   * Low‑friction data in/out.
    */
   function handleImport(e: any) {
     const file = e.target.files?.[0];
@@ -282,6 +287,7 @@ export default function App() {
   /**
    * handleInlineSave
    * ----------------
+   * Used by BookmarkCard inline editing.
    */
   function handleInlineSave(updated: RichBookmark) {
     updateBookmark(updated);
@@ -317,26 +323,33 @@ export default function App() {
   /**
    * handleReorderMain
    * ------------------
-   * NOTE:
-   *   When activeBookId is null (All Pages view), we do not attempt
-   *   to reorder across different books.
+   * Main list reordering is only valid when scoped to a specific book.
+   * On "All Pages", this is disabled (no-op).
    */
   function handleReorderMain(ids: string[]) {
     if (!activeBookId) return;
     reorderBookPages(activeBookId, ids);
   }
 
+  /**
+   * handleReorderPinned
+   * --------------------
+   */
   function handleReorderPinned(ids: string[]) {
     reorderPinned(ids);
   }
 
+  /**
+   * handleMoveToBook
+   * -----------------
+   */
   function handleMoveToBook(id: string, bookId: string | null) {
     assignBookmarkToBook(id, bookId);
   }
 
   /**
-   * Book actions for BookTree menu
-   * ------------------------------
+   * Book actions
+   * ------------
    */
   function handleRenameBook(bookId: string, newName: string) {
     renameBook(bookId, newName);
@@ -377,8 +390,8 @@ export default function App() {
   }
 
   /**
-   * Drag event handlers
-   * -------------------
+   * DnD handlers
+   * ------------
    */
   function handleDragStart(event: DragStartEvent) {
     const draggedId = event.active.id as string;
@@ -443,7 +456,7 @@ export default function App() {
     handleReorderMain(newOrder);
   }
 
-  function handleDragCancel() {
+  function handleDragCancel(_event: DragCancelEvent) {
     setActiveId(null);
     setIsDraggingBookmark(false);
   }
@@ -451,7 +464,7 @@ export default function App() {
   /**
    * activeBookmark
    * ---------------
-   * Used by DragOverlay to render a visual clone while dragging.
+   * Used to render the drag overlay preview.
    */
   const activeBookmark =
     activeId != null ? bookmarks.find((b) => b.id === activeId) : null;
@@ -459,7 +472,7 @@ export default function App() {
   /**
    * booksWithCounts
    * ----------------
-   * Used by BookManagerModal to show how many pages each book contains.
+   * Enrich books with page counts for the Book Manager.
    */
   const booksWithCounts: (Book & { pageCount: number })[] = useMemo(() => {
     const counts = new Map<string, number>();
@@ -474,6 +487,12 @@ export default function App() {
     }));
   }, [books, bookmarks]);
 
+  /**
+   * canReorderMain
+   * ---------------
+   * Reordering in the main list is only enabled when scoped to a book.
+   * On "All Pages", this is false and the UI should reflect that.
+   */
   const canReorderMain = activeBookId !== null;
 
   return (
@@ -484,6 +503,32 @@ export default function App() {
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragCancel}
     >
+      {/* Global DragOverlay for bookmarks */}
+      <DragOverlay adjustScale={false} dropAnimation={null}>
+        {activeBookmark ? (
+          <div className="rotate-3 opacity-90 pointer-events-none max-w-md -translate-y-2 -translate-x-1">
+            <BookmarkCard
+              b={activeBookmark}
+              selected={false}
+              onToggleSelected={() => {}}
+              editMode="inline"
+              onEditRequest={() => {}}
+              onSaveInline={() => {}}
+              onDelete={() => {}}
+              onPin={() => {}}
+              onRetag={() => {}}
+              onTagClick={() => {}}
+              books={books}
+              activeTags={activeTags}
+              onMoveToBook={() => {}}
+              canReorder={false}
+              onActivateBook={() => {}}
+              compact
+            />
+          </div>
+        ) : null}
+      </DragOverlay>
+
       <Layout
         sidebar={
           <Sidebar
@@ -497,13 +542,13 @@ export default function App() {
             bookmarks={bookmarks}
             activeBookId={activeBookId}
             setActiveBookId={setActiveBookId}
-            onCreateBook={handleInlineCreateBook}
+            onCreateBook={addBook}
             onMoveBook={moveBook}
             onBookmarkDrop={assignBookmarkToBook}
             onImport={handleImport}
             onExport={handleExport}
             onOpenSettings={() => setShowSettings(true)}
-            onOpenBookManager={handleModalCreateBook}
+            onOpenBookManager={() => setShowBookManager(true)}
             isDraggingBookmark={isDraggingBookmark}
             onRenameBook={handleRenameBook}
             onChangeBookIcon={handleChangeBookIcon}
@@ -565,6 +610,7 @@ export default function App() {
               onTagClick={handleTagClick}
               onReorder={handleReorderMain}
               onMoveToBook={handleMoveToBook}
+              onActivateBook={handleActivateBook}
             />
           </>
         )}
@@ -599,27 +645,6 @@ export default function App() {
           onClose={() => setShowBookManager(false)}
         />
       )}
-
-      <DragOverlay
-        adjustScale={false}
-        dropAnimation={null}
-        style={{
-          transform: "translate(-4px, -10px)"
-        }}
-      >
-        {activeBookmark ? (
-          <div className="rotate-3 opacity-90">
-            <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-lg border max-w-md">
-              <h3 className="font-medium text-sm truncate">
-                {activeBookmark.title}
-              </h3>
-              <p className="text-xs text-gray-500 truncate">
-                {activeBookmark.url}
-              </p>
-            </div>
-          </div>
-        ) : null}
-      </DragOverlay>
     </DndContext>
   );
 }

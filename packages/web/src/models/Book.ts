@@ -11,4 +11,6 @@ export type Book = {
   updatedAt: number;
   order?: string[]; // ordered list of page IDs
   parentBookId: string | null;
+   /** Optional emoji icon for the book */
+  icon?: string | null;
 };

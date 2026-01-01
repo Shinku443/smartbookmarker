@@ -20,14 +20,18 @@ import type { Book } from "../models/Book";
  * DESIGN NOTE
  * -----------
  * App.tsx passes an *ordered, unfiltered* array of bookmarks into this component.
- * All filtering (search, tags, book) happens INSIDE BookmarkList.
+ * All filtering (search, tags, book) happens inside BookmarkList.
+ *
+ * IMPORTANT:
+ *   The order of `bookmarks` is the DnD source of truth.
+ *   Filtering must preserve that order.
  */
 
 type Props = {
   /** Ordered, unfiltered list of bookmarks (source of truth for DnD) */
   bookmarks: RichBookmark[];
 
-  /** All books (for "move to book" multi‑select action) */
+  /** All books (for multi‑select "Move to book" action) */
   books: Book[];
 
   /** IDs of currently selected bookmarks */
@@ -66,6 +70,9 @@ type Props = {
 
   /** Currently active drag ID (from App's DnD context) */
   activeDragId: string | null;
+
+  /** Activates a book when its label is clicked on a card */
+  onActivateBook: (bookId: string) => void;
 };
 
 export default function BookmarkList({
@@ -86,8 +93,15 @@ export default function BookmarkList({
   activeTags,
   activeBookId,
   canReorder,
-  activeDragId
+  activeDragId,
+  onActivateBook
 }: Props) {
+  /**
+   * toggleSelected
+   * --------------
+   * Toggles a bookmark ID in the selectedIds array.
+   * Used by the checkbox inside BookmarkCard.
+   */
   function toggleSelected(id: string) {
     setSelectedIds(
       selectedIds.includes(id)
@@ -96,6 +110,11 @@ export default function BookmarkList({
     );
   }
 
+  /**
+   * Multi‑select helpers
+   * --------------------
+   * Simple bulk actions delegated to App handlers.
+   */
   function selectAll() {
     setSelectedIds(bookmarks.map((b) => b.id));
   }
@@ -143,10 +162,15 @@ export default function BookmarkList({
    *   1. Fuzzy search (Fuse.js)
    *   2. Multi‑tag filtering (OR logic)
    *   3. Book context filter (activeBookId)
+   *
+   * IMPORTANT:
+   *   Filtering happens on the ordered list passed from App.tsx,
+   *   preserving DnD ordering semantics within the active scope.
    */
   const filteredBookmarks = useMemo(() => {
     let list = bookmarks;
 
+    /** 1. Fuzzy search */
     const query = search.trim();
     if (query) {
       const fuse = new Fuse(list, {
@@ -156,12 +180,14 @@ export default function BookmarkList({
       list = fuse.search(query).map((r) => r.item);
     }
 
+    /** 2. Multi‑tag OR filtering */
     if (activeTags.length > 0) {
       list = list.filter((b) =>
         b.tags?.some((t) => activeTags.includes(t.label))
       );
     }
 
+    /** 3. Book scoping */
     if (activeBookId) {
       list = list.filter((b) => b.bookId === activeBookId);
     }
@@ -169,10 +195,21 @@ export default function BookmarkList({
     return list;
   }, [bookmarks, search, activeTags, activeBookId]);
 
+  /**
+   * ids
+   * ---
+   * SortableContext requires the *full ordered list* of IDs,
+   * not the filtered list.
+   *
+   * This ensures:
+   *   - Dragging works even when items are filtered
+   *   - DnD ordering is always based on the true source of truth
+   */
   const ids = bookmarks.map((b) => b.id);
 
   return (
     <div>
+      {/* Multi‑select toolbar (bulk actions) */}
       <MultiSelectToolbar
         selectedCount={selectedIds.length}
         totalCount={bookmarks.length}
@@ -186,6 +223,7 @@ export default function BookmarkList({
         onMoveSelectedToBook={moveSelectedToBook}
       />
 
+      {/* Sortable context for main bookmark list */}
       <SortableContext items={ids} strategy={verticalListSortingStrategy}>
         <ul className="space-y-4">
           {filteredBookmarks.map((b) => (
@@ -205,6 +243,7 @@ export default function BookmarkList({
                 onTagClick={onTagClick}
                 onMoveToBook={onMoveToBook}
                 canReorder={canReorder}
+                onActivateBook={onActivateBook}
               />
             </li>
           ))}

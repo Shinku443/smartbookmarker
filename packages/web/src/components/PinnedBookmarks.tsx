@@ -148,30 +148,28 @@ export default function PinnedBookmarks({
           </ul>
         </SortableContext>
 
-        <DragOverlay
-          adjustScale={false}
-          dropAnimation={null}
-          style={{
-            transform: "translate(-4px, -10px)"
-          }}
-        >
+        {/* DragOverlay — FIXED: removed transform override */}
+        <DragOverlay adjustScale={false} dropAnimation={null}>
           {activeBookmark ? (
-            <BookmarkCard
-              b={activeBookmark}
-              books={books}
-              selected={false}
-              onToggleSelected={() => {}}
-              editMode="inline"
-              activeTags={activeTags}
-              onDelete={() => {}}
-              onPin={() => {}}
-              onRetag={() => {}}
-              onEditRequest={() => {}}
-              onSaveInline={() => {}}
-              onTagClick={() => {}}
-              onMoveToBook={() => {}}
-              canReorder={true}
-            />
+            <div className="-translate-y-2 -translate-x-1">
+              <BookmarkCard
+                b={activeBookmark}
+                books={books}
+                selected={false}
+                onToggleSelected={() => {}}
+                editMode="inline"
+                activeTags={activeTags}
+                onDelete={() => {}}
+                onPin={() => {}}
+                onRetag={() => {}}
+                onEditRequest={() => {}}
+                onSaveInline={() => {}}
+                onTagClick={() => {}}
+                onMoveToBook={() => {}}
+                canReorder={true}
+                compact
+              />
+            </div>
           ) : null}
         </DragOverlay>
       </DndContext>

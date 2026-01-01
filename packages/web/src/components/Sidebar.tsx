@@ -135,7 +135,6 @@ export default function Sidebar({
     <div className="h-full flex flex-col bg-emperor-sidebar border-r border-emperor-border">
       {/* ------------------------------------------------------------------ */}
       {/* Header Section                                                     */}
-      {/* Contains the title, "Add Page" button, and search input.           */}
       {/* ------------------------------------------------------------------ */}
       <div className="p-4 border-b border-emperor-border">
         <div className="flex justify-between items-center mb-3">
@@ -154,12 +153,9 @@ export default function Sidebar({
 
       {/* ------------------------------------------------------------------ */}
       {/* Main Content Area                                                  */}
-      {/* Scrollable region containing Books, Tags, and Import/Export tools. */}
       {/* ------------------------------------------------------------------ */}
       <div className="flex-1 overflow-y-auto py-4 space-y-6">
-        {/* ----------------------------- */}
-        {/* Books Section                */}
-        {/* ----------------------------- */}
+        {/* Books */}
         <div className="px-4">
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-emperor-muted text-xs uppercase tracking-wide">
@@ -190,9 +186,7 @@ export default function Sidebar({
           />
         </div>
 
-        {/* ----------------------------- */}
-        {/* Tags Section (multi‑select)   */}
-        {/* ----------------------------- */}
+        {/* Tags */}
         <div className="px-4">
           <h3 className="text-emperor-muted text-xs uppercase tracking-wide mb-2">
             Tags
@@ -218,22 +212,18 @@ export default function Sidebar({
           </div>
         </div>
 
-        {/* ----------------------------- */}
-        {/* Import / Export Section       */}
-        {/* ----------------------------- */}
+        {/* Import / Export */}
         <div className="px-4">
           <h3 className="text-emperor-muted text-xs uppercase tracking-wide mb-2">
             Import / Export
           </h3>
 
           <div className="flex flex-col gap-2">
-            {/* HTML Import */}
             <label className="text-sm">
               <span className="mr-2">Import HTML</span>
               <input type="file" accept=".html" onChange={onImport} />
             </label>
 
-            {/* JSON Export */}
             <Button size="sm" variant="subtle" onClick={onExport}>
               Export JSON
             </Button>
@@ -243,7 +233,6 @@ export default function Sidebar({
 
       {/* ------------------------------------------------------------------ */}
       {/* Footer Section                                                     */}
-      {/* Contains the Settings button.                                      */}
       {/* ------------------------------------------------------------------ */}
       <div className="p-4 border-t border-emperor-border">
         <Button size="sm" variant="subtle" onClick={onOpenSettings}>
