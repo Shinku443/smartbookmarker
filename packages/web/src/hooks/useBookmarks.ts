@@ -163,6 +163,40 @@ export function useBookmarks() {
   }
 
   /**
+ * updateBook
+ * ----------
+ * Updates an existing book with new data.
+ * Useful for partial updates (e.g., icon, name, parentBookId).
+ *
+ * @param updated - Updated book data
+ */
+  function updateBook(updated: Book) {
+    const now = Date.now();
+    const nextBooks = books.map((b) =>
+      b.id === updated.id ? { ...b, ...updated, updatedAt: now } : b
+    );
+    persistAll(bookmarks, nextBooks);
+  }
+
+  /**
+   * updateBookIcon
+   * ---------------
+   * Updates the icon of an existing book.
+   * Supports emoji, custom uploads (data URLs), or null to remove.
+   *
+   * @param id - Book ID to update
+   * @param icon - New icon (emoji, data URL, or null)
+   */
+  function updateBookIcon(id: string, icon: string | null) {
+    console.log("Updating book icon:", id, icon);
+    const now = Date.now();
+    const nextBooks = books.map((b) =>
+      b.id === id ? { ...b, icon, updatedAt: now } : b
+    );
+    persistAll(bookmarks, nextBooks);
+  }
+
+  /**
    * deleteBook
    * -----------
    * Removes a book and moves all its bookmarks to the root level.
@@ -576,6 +610,8 @@ export function useBookmarks() {
     renameBook,
     deleteBook,
     moveBook,
+    updateBook,
+    updateBookIcon,
     assignBookmarkToBook,
     reorderBookPages,
     reorderBooks,

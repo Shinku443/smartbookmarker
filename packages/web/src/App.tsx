@@ -104,6 +104,8 @@ export default function App() {
     renameBook,
     deleteBook,
     moveBook,
+    updateBook,
+    updateBookIcon,
 
     assignBookmarkToBook,
     reorderBookPages,
@@ -355,8 +357,9 @@ export default function App() {
     renameBook(bookId, newName);
   }
 
-  function handleChangeBookIcon(bookId: string, icon: string) {
+  function handleChangeBookIcon(bookId: string, icon: string | null) {
     console.log("Change icon for book", bookId, "to", icon);
+    updateBookIcon(bookId, icon);
   }
 
   function handleDeleteBook(bookId: string) {
@@ -383,7 +386,7 @@ export default function App() {
       url: window.location.href
     };
     if ((navigator as any).share) {
-      (navigator as any).share(shareData).catch(() => {});
+      (navigator as any).share(shareData).catch(() => { });
     } else {
       alert(`Share "${book.name}"`);
     }
@@ -510,19 +513,19 @@ export default function App() {
             <BookmarkCard
               b={activeBookmark}
               selected={false}
-              onToggleSelected={() => {}}
+              onToggleSelected={() => { }}
               editMode="inline"
-              onEditRequest={() => {}}
-              onSaveInline={() => {}}
-              onDelete={() => {}}
-              onPin={() => {}}
-              onRetag={() => {}}
-              onTagClick={() => {}}
+              onEditRequest={() => { }}
+              onSaveInline={() => { }}
+              onDelete={() => { }}
+              onPin={() => { }}
+              onRetag={() => { }}
+              onTagClick={() => { }}
               books={books}
               activeTags={activeTags}
-              onMoveToBook={() => {}}
+              onMoveToBook={() => { }}
               canReorder={false}
-              onActivateBook={() => {}}
+              onActivateBook={() => { }}
               compact
             />
           </div>

@@ -8,6 +8,18 @@
  *   - Flags collapsed
  *   - CLDR metadata search (names + keywords + shortcodes)
  *   - Human-friendly labels
+ *   - Inline emoji preview
+ *   - Custom icon uploads
+ *   - Recently used
+ *   - CLDR search
+ */
+/**
+ * ChangeIconModal.tsx — Updated (Block 1)
+ * Modernized Emperor modal container
+ * Inline emoji preview
+ * Custom icon uploads
+ * Recently used
+ * CLDR search
  */
 
 import React, { useState, useMemo } from "react";
@@ -25,13 +37,18 @@ type Props = {
 
 export default function ChangeIconModal({ onClose, onSelect, onDelete }: Props) {
   /* ---------------------------------------------------------------------- */
-  /* Local State                                                            */
+  /* State                                                                  */
   /* ---------------------------------------------------------------------- */
 
   const [query, setQuery] = useState("");
+  const [previewEmoji, setPreviewEmoji] = useState<string | null>(null);
 
   const [recent, setRecent] = useState<string[]>(
     JSON.parse(localStorage.getItem("recent-icons") || "[]")
+  );
+
+  const [customIcons, setCustomIcons] = useState<string[]>(
+    JSON.parse(localStorage.getItem("custom-icons") || "[]")
   );
 
   const addRecent = (emoji: string) => {
@@ -43,6 +60,24 @@ export default function ChangeIconModal({ onClose, onSelect, onDelete }: Props) 
   const handleSelect = (emoji: string) => {
     addRecent(emoji);
     onSelect(emoji);
+  };
+
+  /* ---------------------------------------------------------------------- */
+  /* Upload Handler                                                         */
+  /* ---------------------------------------------------------------------- */
+
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = reader.result as string;
+      const next = [url, ...customIcons].slice(0, 50);
+      setCustomIcons(next);
+      localStorage.setItem("custom-icons", JSON.stringify(next));
+    };
+    reader.readAsDataURL(file);
   };
 
   /* ---------------------------------------------------------------------- */
@@ -105,19 +140,12 @@ export default function ChangeIconModal({ onClose, onSelect, onDelete }: Props) 
   }, [query]);
 
   /* ---------------------------------------------------------------------- */
-  /* Collapsible State                                                      */
-  /* ---------------------------------------------------------------------- */
-
-  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
-  const toggle = (key: string) =>
-    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
-  /* ---------------------------------------------------------------------- */
-  /* Render                                                                 */
+  /* Modernized Emperor Modal Container                                     */
   /* ---------------------------------------------------------------------- */
 
   return (
-    <div className="fixed inset-0 z-[99999] bg-black/40 flex items-center justify-center">
-      <div className="w-[520px] max-h-[80vh] overflow-y-auto p-4 rounded-card bg-emperor-surface shadow-xl">
+    <div className="fixed inset-0 z-[99999] bg-emperor-backdrop/80 backdrop-blur-sm flex items-center justify-center">
+      <div className="w-[520px] max-h-[80vh] overflow-y-auto rounded-xl bg-emperor-surface shadow-2xl border border-emperor-border p-4">
 
         {/* Header */}
         <div className="flex items-center gap-2 mb-4">
@@ -127,6 +155,16 @@ export default function ChangeIconModal({ onClose, onSelect, onDelete }: Props) 
             placeholder="Search icons…"
             className="flex-1 px-3 py-2 rounded-card bg-emperor-surfaceStrong text-sm outline-none"
           />
+
+          <label className="px-3 py-2 text-sm rounded-card bg-emperor-surfaceStrong cursor-pointer">
+            Upload
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleUpload}
+            />
+          </label>
 
           {onDelete && (
             <button
@@ -145,21 +183,30 @@ export default function ChangeIconModal({ onClose, onSelect, onDelete }: Props) 
           </button>
         </div>
 
-        {/* Recently Used */}
-        {recent.length > 0 && (
+        {/* ------------------------------------------------------------------ */}
+        {/* Custom Icons (Uploaded by User)                                   */}
+        {/* ------------------------------------------------------------------ */}
+        {customIcons.length > 0 && (
           <div className="mb-4">
             <details open>
               <summary className="cursor-pointer text-sm font-medium mb-2">
-                Recently Used
+                Custom Icons
               </summary>
+
               <div className="grid grid-cols-8 gap-2">
-                {recent.map((emoji) => (
+                {customIcons.map((url) => (
                   <button
-                    key={emoji}
-                    onClick={() => handleSelect(emoji)}
-                    className="text-xl p-2 rounded hover:bg-emperor-surfaceStrong"
+                    key={url}
+                    onClick={() => handleSelect(url)}
+                    onMouseEnter={() => setPreviewEmoji(url)}
+                    onMouseLeave={() => setPreviewEmoji(null)}
+                    className="p-2 rounded hover:bg-emperor-surfaceStrong"
                   >
-                    {emoji}
+                    <img
+                      src={url}
+                      className="w-6 h-6 object-contain"
+                      draggable={false}
+                    />
                   </button>
                 ))}
               </div>
@@ -167,18 +214,58 @@ export default function ChangeIconModal({ onClose, onSelect, onDelete }: Props) 
           </div>
         )}
 
-        {/* Curated Categories */}
+        {/* ------------------------------------------------------------------ */}
+        {/* Recently Used                                                      */}
+        {/* ------------------------------------------------------------------ */}
+        {recent.length > 0 && (
+          <div className="mb-4">
+            <details open>
+              <summary className="cursor-pointer text-sm font-medium mb-2">
+                Recently Used
+              </summary>
+
+              <div className="grid grid-cols-8 gap-2">
+                {recent.map((emoji) => (
+                  <button
+                    key={emoji}
+                    onClick={() => handleSelect(emoji)}
+                    onMouseEnter={() => setPreviewEmoji(emoji)}
+                    onMouseLeave={() => setPreviewEmoji(null)}
+                    className="text-xl p-2 rounded hover:bg-emperor-surfaceStrong"
+                  >
+                    {emoji.startsWith("data:") || emoji.startsWith("blob:") ? (
+                      <img
+                        src={emoji}
+                        className="w-6 h-6 object-contain"
+                        draggable={false}
+                      />
+                    ) : (
+                      emoji
+                    )}
+                  </button>
+                ))}
+              </div>
+            </details>
+          </div>
+        )}
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Curated Categories                                                 */}
+        {/* ------------------------------------------------------------------ */}
         {Object.entries(filteredCurated).map(([label, icons]) => (
           <div key={label} className="mb-4">
             <details open>
               <summary className="cursor-pointer text-sm font-medium mb-2">
                 {label}
               </summary>
+
               <div className="grid grid-cols-8 gap-2">
                 {icons.map((emoji) => (
                   <button
                     key={emoji}
                     onClick={() => handleSelect(emoji)}
+                    onMouseEnter={() => setPreviewEmoji(emoji)}
+                    onMouseLeave={() => setPreviewEmoji(null)}
                     className="text-xl p-2 rounded hover:bg-emperor-surfaceStrong"
                   >
                     {emoji}
@@ -191,8 +278,9 @@ export default function ChangeIconModal({ onClose, onSelect, onDelete }: Props) 
 
         {/* Divider */}
         <div className="my-4 border-t border-emperor-border opacity-60" />
-
-        {/* Full Emoji Library */}
+        {/* ------------------------------------------------------------------ */}
+        {/* Full Emoji Library                                                 */}
+        {/* ------------------------------------------------------------------ */}
         {Object.entries(filteredLibrary).map(([category, subcats]) => (
           <div key={category} className="mb-4">
             <details>
@@ -212,6 +300,8 @@ export default function ChangeIconModal({ onClose, onSelect, onDelete }: Props) 
                         <button
                           key={emoji}
                           onClick={() => handleSelect(emoji)}
+                          onMouseEnter={() => setPreviewEmoji(emoji)}
+                          onMouseLeave={() => setPreviewEmoji(null)}
                           className="text-xl p-2 rounded hover:bg-emperor-surfaceStrong"
                         >
                           {emoji}

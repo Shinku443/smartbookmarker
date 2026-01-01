@@ -145,6 +145,31 @@ function InlineCreateInput({
 }
 
 /* -------------------------------------------------------------------------- */
+/* Book Icon Renderer (emoji + custom uploads)                                */
+/* -------------------------------------------------------------------------- */
+
+function BookIcon({ icon }: { icon: string | null | undefined }) {
+  if (!icon) {
+    // return <span className="text-base leading-none mr-1">📘</span>;
+    return null;
+  }
+
+  // Custom uploaded icons (data URLs or blob URLs)
+  if (icon.startsWith("data:") || icon.startsWith("blob:")) {
+    return (
+      <img
+        src={icon}
+        className="w-4 h-4 mr-1 object-contain"
+        draggable={false}
+      />
+    );
+  }
+
+  // Unicode emoji
+  return <span className="text-base leading-none mr-1">{icon}</span>;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Draggable Book Item                                                        */
 /* -------------------------------------------------------------------------- */
 
@@ -378,15 +403,13 @@ function DraggableBookItem({
           className={`
             flex items-center flex-1 rounded-card px-1 pr-2 py-1
             cursor-grab active:cursor-grabbing select-none transition-colors
-            ${
-              isActive
-                ? "bg-emperor-surfaceStrong"
-                : "hover:bg-emperor-surface"
+            ${isActive
+              ? "bg-emperor-surfaceStrong"
+              : "hover:bg-emperor-surface"
             }
-            ${
-              isOver && !isDraggingBookmark
-                ? "outline outline-2 outline-emperor-accent"
-                : ""
+            ${isOver && !isDraggingBookmark
+              ? "outline outline-2 outline-emperor-accent"
+              : ""
             }
           `}
           onClick={(e) => {
@@ -415,9 +438,16 @@ function DraggableBookItem({
           </button>
 
           {/* Optional emoji icon (from Book model) */}
-          {node.icon && (
-            <span className="text-base leading-none mr-1">{node.icon}</span>
-          )}
+          <button
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRequestChangeIcon(node.id);
+            }}
+            className="mr-1 p-0.5 rounded hover:bg-emperor-surfaceStrong"
+          >
+            <BookIcon icon={node.icon} />
+          </button>
 
           {/* Name / rename input */}
           <div className="flex-1 min-w-0">
@@ -485,9 +515,8 @@ function DraggableBookItem({
 
       {/* Children */}
       <div
-        className={`transition-all duration-200 overflow-hidden ${
-          isExpanded ? "max-h-[2000px] opacity-100" : "max-h-0 opacity-0"
-        }`}
+        className={`transition-all duration-200 overflow-hidden ${isExpanded ? "max-h-[2000px] opacity-100" : "max-h-0 opacity-0"
+          }`}
       >
         {node.children.map((child) => (
           <DraggableBookItem
@@ -687,10 +716,9 @@ export default function BookTree({
       <div
         ref={setRootRef}
         className={`w-full text-left text-sm px-2 py-1 rounded-card cursor-pointer
-          ${
-            activeBookId === null
-              ? "bg-emperor-surfaceStrong"
-              : "hover:bg-emperor-surface"
+          ${activeBookId === null
+            ? "bg-emperor-surfaceStrong"
+            : "hover:bg-emperor-surface"
           }
           ${isRootOver ? "outline outline-2 outline-emperor-accent" : ""}
         `}

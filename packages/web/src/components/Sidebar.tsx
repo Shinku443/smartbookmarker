@@ -74,7 +74,7 @@ type Props = {
 
   /** BookTree advanced actions */
   onRenameBook?: (bookId: string, newName: string) => void;
-  onChangeBookIcon?: (bookId: string, icon: string) => void;
+  onChangeBookIcon?: (bookId: string, icon: string | null) => void;
   onDeleteBook?: (bookId: string) => void;
   onOpenAllBookmarks?: (bookId: string) => void;
   onShareBook?: (bookId: string) => void;
