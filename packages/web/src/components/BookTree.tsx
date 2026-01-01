@@ -149,10 +149,7 @@ function InlineCreateInput({
 /* -------------------------------------------------------------------------- */
 
 function BookIcon({ icon }: { icon: string | null | undefined }) {
-  if (!icon) {
-    // return <span className="text-base leading-none mr-1">📘</span>;
-    return null;
-  }
+  if (!icon) return null;
 
   // Custom uploaded icons (data URLs or blob URLs)
   if (icon.startsWith("data:") || icon.startsWith("blob:")) {
@@ -246,13 +243,7 @@ function DraggableBookItem({
    * FIX: Only apply transform when THIS BOOK is being dragged.
    * ----------------------------------------------------------
    * When dragging a BOOKMARK, we must NOT transform book rows.
-   * Otherwise the bookmark overlay gets "sucked" upward into the tree,
-   * because both the bookmark and the book row are moving at the same time.
-   *
-   * This matches Raindrop’s behavior:
-   *   - Books move when dragging books
-   *   - Books stay still when dragging bookmarks
-   *   - Bookmark overlay moves freely and visibly
+   * Otherwise the bookmark overlay gets "sucked" upward.
    */
   const style = {
     transform:
@@ -319,25 +310,6 @@ function DraggableBookItem({
     autoExpandOnHover
   ]);
 
-  /* ------------------------------ Menu Outside Click --------------------- */
-
-  useEffect(() => {
-    if (!menuOpen) return;
-
-    function handleClickOutside(e: MouseEvent) {
-      if (!menuRef.current) {
-        setOpenMenuFor(null);
-        return;
-      }
-      if (!menuRef.current.contains(e.target as Node)) {
-        setOpenMenuFor(null);
-      }
-    }
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [menuOpen, setOpenMenuFor]);
-
   /* ------------------------------ Rename Sync ---------------------------- */
 
   useEffect(() => {
@@ -382,6 +354,25 @@ function DraggableBookItem({
     typeof document !== "undefined"
       ? document.getElementById("book-action-menu-root")
       : null;
+
+  /* ------------------------------ Menu Outside Click --------------------- */
+
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    function handleClickOutside(e: MouseEvent) {
+      if (!menuRef.current) {
+        setOpenMenuFor(null);
+        return;
+      }
+      if (!menuRef.current.contains(e.target as Node)) {
+        setOpenMenuFor(null);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [menuOpen, setOpenMenuFor]);
 
   /* ------------------------------ Render ------------------------------------- */
 
@@ -437,7 +428,7 @@ function DraggableBookItem({
             )}
           </button>
 
-          {/* Optional emoji icon (from Book model) */}
+          {/* Optional emoji icon */}
           <button
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => {
@@ -685,6 +676,15 @@ export default function BookTree({
     null
   );
 
+  /* ---------------------------------------------------------------------- */
+  /* NEW: Expand all books on launch                                        */
+  /* ---------------------------------------------------------------------- */
+  useEffect(() => {
+    // When books load or change, expand all of them by default.
+    // This ensures the tree is fully visible on first render.
+    setExpandedBooks(new Set(books.map((b) => b.id)));
+  }, [books.length]);
+
   const { setNodeRef: setRootRef, isOver: isRootOver } = useDroppable({
     id: "library-root"
   });
@@ -708,7 +708,7 @@ export default function BookTree({
     });
   }
 
-  /* ------------------------------ Render ------------------------------------- */
+  /* ------------------------------ Render -------------------------------- */
 
   return (
     <div className="relative space-y-1 p-1 rounded-card">
