@@ -5,13 +5,19 @@ datasource db {
 
 generator client {
   provider = "prisma-client-js"
+  output   = "../../../node_modules/.prisma/client"
 }
 
+
+
+// Emperor core models will be iterated later.
+// Minimal example models based on your earlier API:
+
 model User {
-  id        String    @id @default(uuid())
-  email     String    @unique
+  id        String     @id @default(uuid())
+  email     String     @unique
   password  String
-  createdAt DateTime  @default(now())
+  createdAt DateTime   @default(now())
   bookmarks Bookmark[]
 }
 
