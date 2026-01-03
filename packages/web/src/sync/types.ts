@@ -1,0 +1,1 @@
+export type SyncState = { lastSyncAt: string | null; pending: boolean; error: string | null; };

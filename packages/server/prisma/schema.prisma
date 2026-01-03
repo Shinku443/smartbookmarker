@@ -5,30 +5,61 @@ datasource db {
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../../../node_modules/.prisma/client"
 }
 
-
-
-// Emperor core models will be iterated later.
-// Minimal example models based on your earlier API:
-
-model User {
-  id        String     @id @default(uuid())
-  email     String     @unique
-  password  String
-  createdAt DateTime   @default(now())
-  bookmarks Bookmark[]
-}
-
-model Bookmark {
-  id        String   @id @default(uuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
+model Book {
+  id        String   @id @default(cuid())
   title     String
-  url       String
-  tags      Json
-  favicon   String?
+  emoji     String?
+  order     BigInt
+  pages     Page[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Page {
+  id        String   @id @default(cuid())
+  bookId    String
+  book      Book     @relation(fields: [bookId], references: [id])
+  title     String
+  content   String?
+  order     BigInt
+  pinned    Boolean  @default(false)
+  tags      PageTag[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Tag {
+  id        String    @id @default(cuid())
+  name      String
+  color     String?
+  pages     PageTag[]
+}
+
+model PageTag {
+  pageId String
+  tagId  String
+
+  page Page @relation(fields: [pageId], references: [id])
+  tag  Tag  @relation(fields: [tagId], references: [id])
+
+  @@id([pageId, tagId])
+}
+
+model SyncMetadata {
+  id         String   @id @default(cuid())
+  entityType String
+  entityId   String   @unique
+  version    Int      @default(1)
+  updatedAt  DateTime @updatedAt
+}
+
+model UserPreference {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  darkMode      Boolean  @default(false)
+  itemsPerPage  Int      @default(20)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }

@@ -9,6 +9,9 @@ import { loadBookmarks, saveBookmarks } from "../storage/webStorage";
 import { Book } from "../models/Book";
 import { RichBookmark } from "../models/RichBookmark";
 import { PersistedData } from "../models/PersistedData";
+import { SyncClient, SyncPayload } from "../sync/syncClient";
+import type { SyncState } from "../sync/types";
+import { syncLog } from "../sync/logger";
 
 /**
  * useBookmarks Hook
@@ -29,6 +32,18 @@ export function useBookmarks() {
   const [rootOrder, setRootOrder] = useState<string[]>([]); // Order for ungrouped bookmarks
   const [pinnedOrder, setPinnedOrder] = useState<string[]>([]); // Order for pinned bookmarks
   const [loading, setLoading] = useState(true);
+
+  // NEW: sync state
+  const [syncState, setSyncState] = useState<SyncState>({
+    lastSyncAt: localStorage.getItem("lastSyncAt"),
+    pending: false,
+    error: null,
+  });
+
+  // NEW: one SyncClient instance
+  const [syncClient] = useState(
+    () => new SyncClient("http://localhost:4000"), // adjust later to env
+  );
 
   /**
    * Data Loading Effect
@@ -68,6 +83,27 @@ export function useBookmarks() {
 
       setLoading(false);
     });
+  }, []);
+
+  // SYNC TRIGGERS
+  // Sync once after initial load completes
+  useEffect(() => {
+    if (!loading) {
+      // fire-and-forget; errors are tracked in syncState
+      syncWithServer();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
+
+  // Sync whenever the window regains focus
+  useEffect(() => {
+    function handleFocus() {
+      syncWithServer();
+    }
+
+    window.addEventListener("focus", handleFocus);
+    return () => window.removeEventListener("focus", handleFocus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /**
@@ -590,6 +626,70 @@ export function useBookmarks() {
 
     persistAll(next);
   }
+  async function syncWithServer() {
+    syncLog("syncWithServer() called");
+
+    setSyncState((prev) => ({ ...prev, pending: true, error: null }));
+
+    try {
+      const payload = await syncClient.sync();
+
+      if (!payload) {
+        syncLog("syncWithServer(): no payload returned");
+        throw new Error("Sync failed");
+      }
+
+      syncLog("Applying sync payload…");
+      applySyncPayload(payload);
+
+      const lastSyncAt = localStorage.getItem("lastSyncAt");
+      syncLog("Sync applied. lastSyncAt =", lastSyncAt);
+
+      setSyncState((prev) => ({
+        ...prev,
+        pending: false,
+        lastSyncAt,
+      }));
+    } catch (err: any) {
+      syncLog("syncWithServer() error:", err);
+
+      setSyncState((prev) => ({
+        ...prev,
+        pending: false,
+        error: err?.message ?? "Unknown sync error",
+      }));
+    }
+  }
+
+  function applySyncPayload(payload: SyncPayload) {
+    syncLog("applySyncPayload()", payload);
+
+    const { books: serverBooks, pages: serverPages, tags: serverTags } = payload;
+
+    // Map backend pages -> RichBookmarks
+    const incomingBookmarks: RichBookmark[] = serverPages.map(mapPageToRichBookmark);
+
+    syncLog("Merging books:", serverBooks.length);
+    syncLog("Merging bookmarks:", incomingBookmarks.length);
+
+    // Merge books by id
+    const nextBooks = mergeById(books, serverBooks);
+
+    // Merge bookmarks by id
+    const nextBookmarks = mergeById(bookmarks, incomingBookmarks);
+
+    syncLog("Merged state:", {
+      books: nextBooks.length,
+      bookmarks: nextBookmarks.length,
+    });
+
+
+    // For now we leave rootOrder and pinnedOrder as-is.
+    // Later, you can sync ordering from backend too if you want.
+    persistAll(nextBookmarks, nextBooks, rootOrder, pinnedOrder);
+    syncLog("State persisted after sync");
+
+  }
 
   // Return all state and handlers
   return {
@@ -598,6 +698,8 @@ export function useBookmarks() {
     rootOrder,
     pinnedOrder,
     loading,
+    syncState,
+    syncWithServer,
 
     addBookmark,
     deleteBookmark,
@@ -616,5 +718,36 @@ export function useBookmarks() {
     reorderBookPages,
     reorderBooks,
     reorderPinned
+  };
+}
+
+
+function mergeById<T extends { id: string }>(existing: T[], incoming: T[]): T[] {
+  const map = new Map(existing.map((e) => [e.id, e]));
+
+  for (const item of incoming) {
+    map.set(item.id, { ...map.get(item.id), ...item });
+  }
+
+  return Array.from(map.values());
+}
+
+// Map backend Page to your RichBookmark model
+function mapPageToRichBookmark(page: any): RichBookmark {
+  return {
+    id: page.id,
+    bookId: page.bookId ?? null,
+    title: page.title,
+    url: page.content ?? "",
+    createdAt: new Date(page.createdAt).getTime(),
+    updatedAt: new Date(page.updatedAt).getTime(),
+    faviconUrl: page.faviconUrl ?? "",
+    tags:
+      page.tags?.map((pt: any) => ({
+        label: pt.tag.name,
+        type: "auto" as BookmarkTag["type"],
+      })) ?? [],
+    source: "manual", // or "sync" if you want to distinguish later
+    pinned: page.pinned ?? false,
   };
 }
