@@ -6,3 +6,5 @@ export const config = {
   SCRAPFLY_KEY: process.env.SCRAPFLY_KEY || "",
   DATABASE_URL: process.env.DATABASE_URL || ""
 };
+
+export const VITE_DEBUG_SYNC = process.env.VITE_DEBUG_SYNC === "true";

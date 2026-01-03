@@ -17,7 +17,9 @@ export const bookService = {
     return serializeBigInts(book);
   },
 
-  async create(data: { title: string; emoji?: string }) {
+  async create(data: {
+    title: string; emoji?: string | null
+  }) {
     const book = await prisma.book.create({
       data: {
         title: data.title,
@@ -32,7 +34,8 @@ export const bookService = {
 
   async update(
     id: string,
-    data: Partial<{ title: string; emoji: string }>
+    data: Partial<{ title: string; emoji: string | null; order: number
+     }>
   ) {
     const book = await prisma.book.update({
       where: { id },
