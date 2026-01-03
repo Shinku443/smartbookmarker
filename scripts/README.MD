@@ -1,0 +1,1 @@
+NOTE: A lot of these scripts were written with being in root in mind, I did not update them to generate the code from a scripts/folder
