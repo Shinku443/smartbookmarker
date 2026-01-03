@@ -24,6 +24,9 @@ import {
   updatePage,
   fetchPages,
 } from "../api/pages";
+import { SyncClient } from "../sync/syncClient";
+import { SyncPayloadBuilder } from "../sync/syncPayloadBuilder";
+import type { SyncEvent } from "../sync/types";
 
 type SyncStatus = "idle" | "syncing" | "error";
 
@@ -66,6 +69,7 @@ type State = {
   syncError: string | null;
   lastSyncAt: string | null;
   lastSyncSummary: SyncSummary | null;
+  syncEvents: SyncEvent[];
 
   initializeFromServer: () => Promise<void>;
   syncWithServer: () => Promise<void>;
@@ -120,6 +124,7 @@ export const useBookmarksStore = create<State>((set, get) => ({
   syncError: null,
   lastSyncAt: null,
   lastSyncSummary: null,
+  syncEvents: [],
 
   // Initial load: full sync
   async initializeFromServer() {
@@ -127,27 +132,58 @@ export const useBookmarksStore = create<State>((set, get) => ({
     await get().syncWithServer();
   },
 
-  // SYNC ENGINE
+  // FULL SYNC ENGINE (PUSH + PULL)
   async syncWithServer() {
     const state = get();
     if (state.syncStatus === "syncing") return;
 
     set({ syncStatus: "syncing", syncError: null });
 
+    const syncClient = new SyncClient("/api");
+
     try {
-      const since = state.lastSyncAt;
-      const url = since ? `/api/sync?since=${encodeURIComponent(since)}` : "/api/sync";
-      const res = await fetch(url, { method: "GET" });
-      const payload = await handleJson<SyncPayload>(res);
-
+      // PHASE 1: PUSH local changes
       const { books: localBooks, pages: localPages } = get();
+      const pushPayload = SyncPayloadBuilder.buildPushPayload(localBooks, localPages);
 
-      const localBooksById = new Map(localBooks.map((b) => [b.id, b]));
-      const localPagesById = new Map(localPages.map((p) => [p.id, p]));
+      if (pushPayload.books.length > 0 || pushPayload.pages.length > 0) {
+        const pushSuccess = await syncClient.push(pushPayload);
+        if (pushSuccess) {
+          // Clear local change flags after successful push
+          set({
+            books: localBooks.map(b => ({ ...b, hasLocalChanges: false, isLocalOnly: false })),
+            pages: localPages.map(p => ({ ...p, hasLocalChanges: false, isLocalOnly: false })),
+            syncEvents: [
+              ...state.syncEvents.slice(-9), // Keep last 10 events
+              {
+                id: crypto.randomUUID(),
+                timestamp: new Date().toISOString(),
+                type: 'push',
+                description: `Pushed ${pushPayload.books.length} books, ${pushPayload.pages.length} pages`,
+                details: pushPayload,
+              },
+            ],
+          });
+        } else {
+          throw new Error("Push failed");
+        }
+      }
+
+      // PHASE 2: PULL remote changes
+      const pullPayload = await syncClient.sync();
+      if (!pullPayload) {
+        throw new Error("Pull failed");
+      }
+
+      const updatedState = get();
+      const { books: currentBooks, pages: currentPages } = updatedState;
+
+      const localBooksById = new Map(currentBooks.map((b) => [b.id, b]));
+      const localPagesById = new Map(currentPages.map((p) => [p.id, p]));
 
       // MERGE BOOKS
-      const mergedBooks: Book[] = [...localBooks];
-      for (const remote of payload.books) {
+      const mergedBooks: Book[] = [...currentBooks];
+      for (const remote of pullPayload.books) {
         const existing = localBooksById.get(remote.id);
         if (!existing) {
           mergedBooks.push({ ...remote });
@@ -173,8 +209,8 @@ export const useBookmarksStore = create<State>((set, get) => ({
       ).sort((a, b) => a.order - b.order);
 
       // MERGE PAGES
-      const mergedPages: Page[] = [...localPages];
-      for (const remote of payload.pages) {
+      const mergedPages: Page[] = [...currentPages];
+      for (const remote of pullPayload.pages) {
         const existing = localPagesById.get(remote.id);
         if (!existing) {
           mergedPages.push({ ...remote });
@@ -209,16 +245,37 @@ export const useBookmarksStore = create<State>((set, get) => ({
         syncStatus: "idle",
         syncError: null,
         lastSyncSummary: {
-          changes: payload.changes.length,
-          books: payload.books.length,
-          pages: payload.pages.length,
-          tags: payload.tags.length,
+          changes: pullPayload.changes.length,
+          books: pullPayload.books.length,
+          pages: pullPayload.pages.length,
+          tags: pullPayload.tags.length,
         },
+        syncEvents: [
+          ...updatedState.syncEvents.slice(-9), // Keep last 10 events
+          {
+            id: crypto.randomUUID(),
+            timestamp: nowIso,
+            type: 'pull',
+            description: `Pulled ${pullPayload.changes.length} changes (${pullPayload.books.length} books, ${pullPayload.pages.length} pages)`,
+            details: pullPayload,
+          },
+        ],
       });
     } catch (err: any) {
+      const errorMessage = err?.message ?? "Unknown sync error";
       set({
         syncStatus: "error",
-        syncError: err?.message ?? "Unknown sync error",
+        syncError: errorMessage,
+        syncEvents: [
+          ...state.syncEvents.slice(-9), // Keep last 10 events
+          {
+            id: crypto.randomUUID(),
+            timestamp: new Date().toISOString(),
+            type: 'error',
+            description: `Sync failed: ${errorMessage}`,
+            details: err,
+          },
+        ],
       });
     }
   },

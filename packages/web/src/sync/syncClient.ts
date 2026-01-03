@@ -1,24 +1,39 @@
 import { syncLog } from "./logger";
-
-export type SyncChange = {
-  entityType: "book" | "page" | "tag";
-  entityId: string;
-  version: number;
-  updatedAt: string;
-};
-
-export type SyncPayload = {
-  changes: SyncChange[];
-  books: any[];
-  pages: any[];
-  tags: any[];
-};
+import type { SyncChange, SyncPayload } from "./types";
+import type { PushPayload } from "./syncPayloadBuilder";
 
 export class SyncClient {
   private lastSyncAt: string | null;
 
   constructor(private baseUrl: string) {
     this.lastSyncAt = localStorage.getItem("lastSyncAt");
+  }
+
+  async push(payload: PushPayload): Promise<boolean> {
+    syncLog("Starting push…", {
+      books: payload.books.length,
+      pages: payload.pages.length,
+      tags: payload.tags.length,
+    });
+
+    try {
+      const res = await fetch(`${this.baseUrl}/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        syncLog("Push failed: server returned non-OK", res.status);
+        return false;
+      }
+
+      syncLog("Push completed successfully");
+      return true;
+    } catch (err: any) {
+      syncLog("Push error:", err);
+      return false;
+    }
   }
 
   async sync(): Promise<SyncPayload | null> {

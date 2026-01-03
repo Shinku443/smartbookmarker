@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { useBookmarksStore } from "../store/useBookmarksStore";
 
 export function SyncDebugPanel() {
@@ -6,7 +6,10 @@ export function SyncDebugPanel() {
   const lastSyncAt = useBookmarksStore(s => s.lastSyncAt);
   const syncError = useBookmarksStore(s => s.syncError);
   const lastSyncSummary = useBookmarksStore(s => s.lastSyncSummary);
+  const syncEvents = useBookmarksStore(s => s.syncEvents);
   const syncWithServer = useBookmarksStore(s => s.syncWithServer);
+
+  const [showTimeline, setShowTimeline] = useState(false);
 
   const isSyncing = syncStatus === "syncing";
 
@@ -60,6 +63,50 @@ export function SyncDebugPanel() {
         {syncError && (
           <div className="text-red-400">
             Error: <span>{syncError}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Sync Timeline */}
+      <div className="border-t border-neutral-700 pt-2">
+        <button
+          onClick={() => setShowTimeline(!showTimeline)}
+          className="text-neutral-400 hover:text-neutral-200 text-xs flex items-center gap-1"
+        >
+          <span>{showTimeline ? "▼" : "▶"}</span>
+          <span>Timeline ({syncEvents.length})</span>
+        </button>
+
+        {showTimeline && (
+          <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+            {syncEvents.length === 0 ? (
+              <div className="text-neutral-500 text-xs">No sync events yet</div>
+            ) : (
+              syncEvents.slice().reverse().map((event) => (
+                <div
+                  key={event.id}
+                  className="text-xs border-l-2 pl-2 border-neutral-600"
+                >
+                  <div className="flex items-center gap-1">
+                    <span
+                      className={
+                        event.type === "error"
+                          ? "text-red-400"
+                          : event.type === "push"
+                          ? "text-blue-400"
+                          : "text-green-400"
+                      }
+                    >
+                      {event.type === "pull" ? "↓" : event.type === "push" ? "↑" : "✗"}
+                    </span>
+                    <span className="text-neutral-300">
+                      {new Date(event.timestamp).toLocaleTimeString()}
+                    </span>
+                  </div>
+                  <div className="text-neutral-400 ml-3">{event.description}</div>
+                </div>
+              ))
+            )}
           </div>
         )}
       </div>
