@@ -11,9 +11,9 @@ export type PushPayload = {
   }[];
   pages: {
     id: string;
-    bookId: string;
+    bookId: string | null;
     title: string;
-    content: string | null;
+    content: string;
     order: number;
     pinned: boolean;
     createdAt: string;
@@ -39,9 +39,9 @@ export class SyncPayloadBuilder {
       })),
       pages: localOnlyPages.map(page => ({
         id: page.id,
-        bookId: page.bookId,
+        bookId: page.bookId || null,
         title: page.title,
-        content: page.content,
+        content: page.content || "",
         order: Number(page.order),
         pinned: page.pinned,
         createdAt: page.createdAt,

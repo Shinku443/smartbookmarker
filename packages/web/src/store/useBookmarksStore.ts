@@ -139,7 +139,7 @@ export const useBookmarksStore = create<State>((set, get) => ({
 
     set({ syncStatus: "syncing", syncError: null });
 
-    const syncClient = new SyncClient("/api");
+    const syncClient = new SyncClient();
 
     try {
       // PHASE 1: PUSH local changes

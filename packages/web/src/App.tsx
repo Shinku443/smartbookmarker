@@ -207,7 +207,7 @@ export default function App() {
 
     if (activeBookId) {
       const book = books.find((b) => b.id === activeBookId);
-      const order = book?.order ?? [];
+      const order = Array.isArray(book?.order) ? book.order : [];
 
       for (const id of order) {
         const b = idToBookmark.get(id);

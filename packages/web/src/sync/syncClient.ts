@@ -5,8 +5,21 @@ import type { PushPayload } from "./syncPayloadBuilder";
 export class SyncClient {
   private lastSyncAt: string | null;
 
-  constructor(private baseUrl: string) {
-    this.lastSyncAt = localStorage.getItem("lastSyncAt");
+  constructor(private baseUrl: string = "http://localhost:4000") {
+    const stored = localStorage.getItem("lastSyncAt");
+    if (stored) {
+      const storedTime = new Date(stored).getTime();
+      const now = Date.now();
+      // Clear lastSyncAt if it's in the future
+      if (storedTime > now + 1000) {
+        localStorage.removeItem("lastSyncAt");
+        this.lastSyncAt = null;
+      } else {
+        this.lastSyncAt = stored;
+      }
+    } else {
+      this.lastSyncAt = null;
+    }
   }
 
   async push(payload: PushPayload): Promise<boolean> {
@@ -36,12 +49,11 @@ export class SyncClient {
     }
   }
 
-  async sync(): Promise<SyncPayload | null> {
-    syncLog("Starting sync…", { lastSyncAt: this.lastSyncAt });
-
-    const url = this.lastSyncAt
-      ? `${this.baseUrl}/sync?since=${encodeURIComponent(this.lastSyncAt)}`
-      : `${this.baseUrl}/sync`;
+  async sync(forceFull: boolean = false): Promise<SyncPayload | null> {
+    // For offline-first, always do full sync to ensure we have all server data
+    // The merge logic will handle conflicts by keeping local data
+    const url = `${this.baseUrl}/sync`;
+    syncLog("Starting sync…", { forceFull, url });
 
     try {
       const res = await fetch(url);
@@ -60,9 +72,18 @@ export class SyncClient {
 
       const newest = payload.changes.at(-1)?.updatedAt;
       if (newest) {
-        this.lastSyncAt = newest;
-        localStorage.setItem("lastSyncAt", newest);
-        syncLog("Updated lastSyncAt →", newest);
+        const newestTime = new Date(newest).getTime();
+        const now = Date.now();
+        // Only update lastSyncAt if the server timestamp is not in the future
+        if (newestTime <= now + 1000) { // Allow 1 second grace period
+          this.lastSyncAt = newest;
+          localStorage.setItem("lastSyncAt", newest);
+          syncLog("Updated lastSyncAt →", newest);
+        } else {
+          syncLog("Server timestamp is in the future, clearing lastSyncAt");
+          this.lastSyncAt = null;
+          localStorage.removeItem("lastSyncAt");
+        }
       }
 
       syncLog("Sync completed successfully");

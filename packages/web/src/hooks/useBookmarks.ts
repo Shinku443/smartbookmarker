@@ -9,8 +9,8 @@ import { loadBookmarks, saveBookmarks } from "../storage/webStorage";
 import { Book } from "../models/Book";
 import { RichBookmark } from "../models/RichBookmark";
 import { PersistedData } from "../models/PersistedData";
-import { SyncClient, SyncPayload } from "../sync/syncClient";
-import type { SyncState } from "../sync/types";
+import { SyncClient } from "../sync/syncClient";
+import type { SyncState, SyncPayload } from "../sync/types";
 import { syncLog } from "../sync/logger";
 
 /**
@@ -42,7 +42,7 @@ export function useBookmarks() {
 
   // NEW: one SyncClient instance
   const [syncClient] = useState(
-    () => new SyncClient("http://localhost:4000"), // adjust later to env
+    () => new SyncClient(), // use direct API connection
   );
 
   /**
@@ -247,7 +247,7 @@ export function useBookmarks() {
     );
 
     const deletedBook = books.find((b) => b.id === id);
-    const removedIds = new Set(deletedBook?.order ?? []);
+    const removedIds = new Set(Array.isArray(deletedBook?.order) ? deletedBook.order : []);
 
     const nextRootOrder = [
       ...rootOrder,
@@ -356,14 +356,14 @@ export function useBookmarks() {
       if (book.id === prevBookId) {
         return {
           ...book,
-          order: (book.order ?? []).filter((id) => id !== bookmarkId)
+          order: (Array.isArray(book.order) ? book.order : []).filter((id) => id !== bookmarkId)
         };
       }
       if (book.id === bookId) {
-        const existing = new Set(book.order ?? []);
+        const existing = new Set(Array.isArray(book.order) ? book.order : []);
         return {
           ...book,
-          order: [...(book.order ?? []), ...(existing.has(bookmarkId) ? [] : [bookmarkId])]
+          order: [...(Array.isArray(book.order) ? book.order : []), ...(existing.has(bookmarkId) ? [] : [bookmarkId])]
         };
       }
       return book;
@@ -404,7 +404,7 @@ export function useBookmarks() {
       b.id === bookId
         ? {
           ...b,
-          order: [...newIds, ...((b.order ?? []).filter((id) => !newIds.includes(id)))]
+          order: [...newIds, ...(Array.isArray(b.order) ? b.order : []).filter((id) => !newIds.includes(id))]
         }
         : b
     );
@@ -632,7 +632,14 @@ export function useBookmarks() {
     setSyncState((prev) => ({ ...prev, pending: true, error: null }));
 
     try {
-      const payload = await syncClient.sync();
+      // First, push any local changes to the server
+      await pushLocalChanges();
+
+      // Then pull latest changes from server
+      // Force full sync if client has no local data
+      const hasLocalData = bookmarks.length > 0 || books.length > 0;
+      const forceFull = !hasLocalData;
+      const payload = await syncClient.sync(forceFull);
 
       if (!payload) {
         syncLog("syncWithServer(): no payload returned");
@@ -661,34 +668,111 @@ export function useBookmarks() {
     }
   }
 
+  async function pushLocalChanges() {
+    const lastSyncAt = localStorage.getItem("lastSyncAt");
+    const lastSyncTime = lastSyncAt ? new Date(lastSyncAt).getTime() : 0;
+    const now = Date.now();
+
+    // If lastSyncAt is in the future (server timestamp issue), push all local items
+    const isLastSyncInFuture = lastSyncTime > now + 1000; // 1 second grace period
+    const effectiveLastSyncTime = isLastSyncInFuture ? 0 : lastSyncTime;
+
+    // Find bookmarks that were created or updated since last sync
+    const changedBookmarks = bookmarks.filter(b =>
+      b.createdAt > effectiveLastSyncTime || b.updatedAt > effectiveLastSyncTime
+    );
+
+    // Find books that were created or updated since last sync
+    const changedBooks = books.filter(b =>
+      b.createdAt > lastSyncTime || b.updatedAt > lastSyncTime
+    );
+
+    if (changedBookmarks.length === 0 && changedBooks.length === 0) {
+      syncLog("No local changes to push");
+      return;
+    }
+
+    syncLog("Pushing local changes:", {
+      bookmarks: changedBookmarks.length,
+      books: changedBooks.length
+    });
+
+    // Convert to push payload format
+    const pushPayload = {
+      books: changedBooks.map(book => ({
+        id: book.id,
+        title: book.name,
+        emoji: book.icon || null,
+        order: 0, // TODO: implement proper ordering
+        parentBookId: book.parentBookId,
+        createdAt: new Date(book.createdAt).toISOString(),
+        updatedAt: new Date(book.updatedAt).toISOString(),
+      })),
+      pages: changedBookmarks.map(bookmark => ({
+        id: bookmark.id,
+        bookId: bookmark.bookId || null,
+        title: bookmark.title,
+        content: bookmark.url,
+        order: 0, // TODO: implement proper ordering
+        pinned: bookmark.pinned ?? false,
+        createdAt: new Date(bookmark.createdAt).toISOString(),
+        updatedAt: new Date(bookmark.updatedAt).toISOString(),
+        tagIds: bookmark.tags?.map(t => t.label) || [],
+      })),
+      tags: [], // TODO: implement tag sync
+    };
+
+    const success = await syncClient.push(pushPayload);
+    if (!success) {
+      throw new Error("Failed to push local changes");
+    }
+
+    syncLog("Local changes pushed successfully");
+  }
+
   function applySyncPayload(payload: SyncPayload) {
     syncLog("applySyncPayload()", payload);
 
     const { books: serverBooks, pages: serverPages, tags: serverTags } = payload;
 
+    // Validate and fix server books
+    const validatedServerBooks = serverBooks.map((book: any) => ({
+      ...book,
+      order: Array.isArray(book.order) ? book.order : []
+    }));
+
     // Map backend pages -> RichBookmarks
     const incomingBookmarks: RichBookmark[] = serverPages.map(mapPageToRichBookmark);
 
-    syncLog("Merging books:", serverBooks.length);
+    syncLog("Merging books:", validatedServerBooks.length);
     syncLog("Merging bookmarks:", incomingBookmarks.length);
 
-    // Merge books by id
-    const nextBooks = mergeById(books, serverBooks);
-
-    // Merge bookmarks by id
-    const nextBookmarks = mergeById(bookmarks, incomingBookmarks);
+    // Offline-first merge: only add new items from server, never overwrite local
+    const nextBooks = mergeOfflineFirst(books, validatedServerBooks);
+    const nextBookmarks = mergeOfflineFirst(bookmarks, incomingBookmarks);
 
     syncLog("Merged state:", {
       books: nextBooks.length,
       bookmarks: nextBookmarks.length,
     });
 
+    // Update ordering to include any new bookmarks from server
+    const existingBookmarkIds = new Set(bookmarks.map(b => b.id));
+    const newBookmarkIds = incomingBookmarks
+      .filter(b => !existingBookmarkIds.has(b.id))
+      .map(b => b.id);
 
-    // For now we leave rootOrder and pinnedOrder as-is.
-    // Later, you can sync ordering from backend too if you want.
-    persistAll(nextBookmarks, nextBooks, rootOrder, pinnedOrder);
+    const nextRootOrder = [...rootOrder, ...newBookmarkIds.filter(id => !rootOrder.includes(id))];
+
+    // Update pinned order for newly synced pinned bookmarks
+    const newPinnedBookmarkIds = incomingBookmarks
+      .filter(b => b.pinned && !pinnedOrder.includes(b.id))
+      .map(b => b.id);
+
+    const nextPinnedOrder = [...pinnedOrder, ...newPinnedBookmarkIds];
+
+    persistAll(nextBookmarks, nextBooks, nextRootOrder, nextPinnedOrder);
     syncLog("State persisted after sync");
-
   }
 
   // Return all state and handlers
@@ -722,11 +806,28 @@ export function useBookmarks() {
 }
 
 
-function mergeById<T extends { id: string }>(existing: T[], incoming: T[]): T[] {
+function mergeOfflineFirst<T extends { id: string }>(existing: T[], incoming: T[]): T[] {
   const map = new Map(existing.map((e) => [e.id, e]));
 
   for (const item of incoming) {
-    map.set(item.id, { ...map.get(item.id), ...item });
+    // Only add items that don't exist locally - never overwrite local data
+    if (!map.has(item.id)) {
+      // For new items, map fields if needed
+      if ('title' in item && !('name' in item)) {
+        // Server book -> client book
+        const clientItem = {
+          ...item,
+          name: (item as any).title,
+          icon: (item as any).emoji,
+        } as any;
+        delete clientItem.title;
+        delete clientItem.emoji;
+        map.set(item.id, clientItem as T);
+      } else {
+        map.set(item.id, item);
+      }
+    }
+    // If item exists locally, we keep the local version (offline-first)
   }
 
   return Array.from(map.values());
@@ -741,13 +842,13 @@ function mapPageToRichBookmark(page: any): RichBookmark {
     url: page.content ?? "",
     createdAt: new Date(page.createdAt).getTime(),
     updatedAt: new Date(page.updatedAt).getTime(),
-    faviconUrl: page.faviconUrl ?? "",
+    faviconUrl: "", // Server doesn't store this, will be preserved from local
     tags:
       page.tags?.map((pt: any) => ({
         label: pt.tag.name,
         type: "auto" as BookmarkTag["type"],
       })) ?? [],
-    source: "manual", // or "sync" if you want to distinguish later
+    source: "imported", // Will be preserved from local if exists
     pinned: page.pinned ?? false,
   };
 }

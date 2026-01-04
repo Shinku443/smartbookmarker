@@ -13,6 +13,7 @@ type PushPayload = {
     title: string;
     emoji: string | null;
     order: number;
+    parentBookId: string | null;
     createdAt: string;
     updatedAt: string;
   }[];
@@ -106,6 +107,7 @@ export default async function syncRoutes(app: FastifyInstance) {
             title: book.title,
             emoji: book.emoji,
             order: book.order,
+            parentBookId: book.parentBookId,
           },
         });
       } else {
@@ -115,6 +117,7 @@ export default async function syncRoutes(app: FastifyInstance) {
             title: book.title,
             emoji: book.emoji,
             order: book.order,
+            parentBookId: book.parentBookId,
             createdAt: new Date(book.createdAt),
             updatedAt: new Date(book.updatedAt),
           },

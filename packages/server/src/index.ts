@@ -9,13 +9,19 @@ import syncRoutes from "./routes/sync";
 
 const app = Fastify();
 
+// Register plugins first
+app.register(cors, {
+  origin: true, // Allow all origins for testing
+  credentials: true
+});
+
 app.register(prismaPlugin);
+
+// Register routes after plugins
 app.register(bookRoutes);
 app.register(pageRoutes);
 app.register(tagRoutes);
 app.register(syncRoutes);
-
-app.register(cors, { origin: "http://localhost:5173", credentials: true, }); // // or true for all origins credentials
 
 app.listen({ port: 4000, host: "0.0.0.0" }).then(() => {
   console.log("API running on port 4000");
