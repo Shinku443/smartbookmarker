@@ -39,38 +39,38 @@ export class SyncClient {
   async sync(): Promise<SyncPayload | null> {
     syncLog("Starting sync…", { lastSyncAt: this.lastSyncAt });
 
-    const url = new URL(`${this.baseUrl}/sync`);
+    const url = this.lastSyncAt
+      ? `${this.baseUrl}/sync?since=${encodeURIComponent(this.lastSyncAt)}`
+      : `${this.baseUrl}/sync`;
 
-    if (this.lastSyncAt) {
-      url.searchParams.set("since", this.lastSyncAt);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        syncLog("Sync failed: server returned non-OK", res.status);
+        return null;
+      }
+
+      const payload: SyncPayload = await res.json();
+      syncLog("Received sync payload:", {
+        changes: payload.changes.length,
+        books: payload.books.length,
+        pages: payload.pages.length,
+        tags: payload.tags.length,
+      });
+
+      const newest = payload.changes.at(-1)?.updatedAt;
+      if (newest) {
+        this.lastSyncAt = newest;
+        localStorage.setItem("lastSyncAt", newest);
+        syncLog("Updated lastSyncAt →", newest);
+      }
+
+      syncLog("Sync completed successfully");
+      return payload;
+    } catch (err: any) {
+      syncLog("Sync error:", err);
+      return null;
     }
-
-    const res = await fetch(url.toString());
-    if (!res.ok) {
-      syncLog("Sync failed: server returned non-OK", res.status);
-      return null
-    }
-
-    const payload: SyncPayload = await res.json();
-    syncLog("Received sync payload:", {
-      changes: payload.changes.length,
-      books: payload.books.length,
-      pages: payload.pages.length,
-      tags: payload.tags.length,
-    });
-
-    const newest = payload.changes.at(-1)?.updatedAt;
-    if (newest) {
-      this.lastSyncAt = newest;
-      localStorage.setItem("lastSyncAt", newest);
-      syncLog("Updated lastSyncAt →", newest);
-    }
-
-    syncLog("Sync completed successfully");
-    return payload;
-  } catch(err: any) {
-    syncLog("Sync error:", err);
-    return null;
   }
 
 }
