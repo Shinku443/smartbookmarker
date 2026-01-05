@@ -16,8 +16,10 @@
  */
 
 import type { PersistedData } from "../models/PersistedData";
+import type { ViewMode, InfoVisibility } from "../components/SettingsScreen";
 
 const STORAGE_KEY = "emperor_library";
+const VIEW_SETTINGS_KEY = "emperor_view_settings";
 
 /**
  * loadBookmarks()
@@ -78,4 +80,73 @@ export async function loadBookmarks(): Promise<PersistedData> {
  */
 export async function saveBookmarks(data: PersistedData): Promise<void> {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+}
+
+/**
+ * ViewSettings
+ * -------------
+ * Settings for how bookmarks are displayed.
+ */
+export type ViewSettings = {
+  viewMode: ViewMode;
+  infoVisibility: InfoVisibility;
+};
+
+/**
+ * loadViewSettings()
+ * ------------------
+ * Loads view settings from localStorage.
+ *
+ * Returns default settings if nothing is stored.
+ */
+export function loadViewSettings(): ViewSettings {
+  const raw = localStorage.getItem(VIEW_SETTINGS_KEY);
+
+  if (!raw) {
+    return {
+      viewMode: "card",
+      infoVisibility: {
+        favicon: true,
+        url: true,
+        tags: true,
+        date: true,
+        book: true
+      }
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      viewMode: parsed.viewMode ?? "card",
+      infoVisibility: {
+        favicon: parsed.infoVisibility?.favicon ?? true,
+        url: parsed.infoVisibility?.url ?? true,
+        tags: parsed.infoVisibility?.tags ?? true,
+        date: parsed.infoVisibility?.date ?? true,
+        book: parsed.infoVisibility?.book ?? true
+      }
+    };
+  } catch {
+    // If corrupted, return defaults
+    return {
+      viewMode: "card",
+      infoVisibility: {
+        favicon: true,
+        url: true,
+        tags: true,
+        date: true,
+        book: true
+      }
+    };
+  }
+}
+
+/**
+ * saveViewSettings()
+ * ------------------
+ * Persists view settings to localStorage.
+ */
+export function saveViewSettings(settings: ViewSettings): void {
+  localStorage.setItem(VIEW_SETTINGS_KEY, JSON.stringify(settings));
 }

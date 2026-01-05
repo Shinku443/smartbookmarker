@@ -9,6 +9,7 @@ import { Input } from "./ui/Input";
 
 import type { RichBookmark } from "../models/RichBookmark";
 import type { Book } from "../models/Book";
+import type { ViewMode, InfoVisibility } from "./SettingsScreen";
 
 import { StarIcon as StarSolid } from "@heroicons/react/24/solid";
 import {
@@ -68,6 +69,12 @@ type Props = {
 
   /** Compact mode for DragOverlay (non-interactive) */
   compact?: boolean;
+
+  /** View mode: card, list, or grid */
+  viewMode?: ViewMode;
+
+  /** Info visibility settings */
+  infoVisibility?: InfoVisibility;
 };
 
 export default function BookmarkCard({
@@ -86,7 +93,15 @@ export default function BookmarkCard({
   onMoveToBook,
   canReorder,
   onActivateBook,
-  compact = false
+  compact = false,
+  viewMode = "card",
+  infoVisibility = {
+    favicon: true,
+    url: true,
+    tags: true,
+    date: true,
+    book: true
+  }
 }: Props) {
   /**
    * COMPACT MODE
@@ -161,7 +176,7 @@ export default function BookmarkCard({
   /**
    * FULL MODE
    * ---------
-   * Original interactive card.
+   * Interactive card with different view modes.
    */
 
   const [inlineTitle, setInlineTitle] = useState(b.title);
@@ -214,40 +229,259 @@ export default function BookmarkCard({
 
   const book = books.find((bk) => bk.id === b.bookId);
 
+  // Common elements based on visibility settings
+  const faviconElement = infoVisibility.favicon && b.faviconUrl && (
+    <img src={b.faviconUrl} className="w-5 h-5 mt-1 flex-shrink-0" />
+  );
+
+  const urlElement = infoVisibility.url && (
+    <div className="text-sm text-emperor-muted flex items-center gap-2">
+      {b.url}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          copyUrl();
+        }}
+        className="opacity-0 group-hover:opacity-100 transition"
+      >
+        <ClipboardIcon className="w-4 h-4" />
+      </button>
+    </div>
+  );
+
+  const bookElement = infoVisibility.book && book && (
+    <div className="text-xs text-emperor-muted mt-1">
+      In{" "}
+      <button
+        className="text-emperor-accent font-medium hover:underline"
+        onClick={(e) => {
+          e.stopPropagation();
+          onActivateBook?.(book.id);
+        }}
+      >
+        {book.name}
+      </button>
+    </div>
+  );
+
+  const tagsElement = infoVisibility.tags && b.tags && b.tags.length > 0 && (
+    <div className="flex flex-wrap gap-2">
+      {b.tags.map((t) => (
+        <TagChip
+          key={t.label}
+          label={t.label}
+          active={activeTags.includes(t.label)}
+          onClick={() => onTagClick(t.label)}
+        />
+      ))}
+    </div>
+  );
+
+  const dateElement = infoVisibility.date && (
+    <div className="text-xs text-emperor-muted">
+      {new Date(b.createdAt).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric"
+      })}
+    </div>
+  );
+
+  // Action buttons
+  const actionButtons = !isEditingInline && (
+    <div className="flex items-center gap-3">
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onPin(b.id);
+        }}
+        className="hover:scale-110 transition"
+      >
+        {b.pinned ? (
+          <StarSolid className="w-5 h-5 text-yellow-400" />
+        ) : (
+          <StarOutline className="w-5 h-5 text-emperor-muted" />
+        )}
+      </button>
+
+      <Button
+        size="sm"
+        variant="subtle"
+        onClick={(e) => {
+          e.stopPropagation();
+          onRetag(b);
+        }}
+      >
+        Retag
+      </Button>
+
+      <Button
+        size="sm"
+        variant="subtle"
+        onClick={(e) => {
+          e.stopPropagation();
+          startEdit();
+        }}
+      >
+        Edit
+      </Button>
+
+      <Button
+        size="sm"
+        variant="danger"
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete(b.id);
+        }}
+      >
+        Delete
+      </Button>
+    </div>
+  );
+
+  // Checkbox
+  const checkboxElement = (
+    <input
+      type="checkbox"
+      className="mt-1 flex-shrink-0"
+      checked={selected}
+      onChange={() => onToggleSelected(b.id)}
+      onClick={(e) => e.stopPropagation()}
+    />
+  );
+
+  // Base card styling
+  const baseCardClass = `
+    border transition relative group
+    ${canReorder ? "cursor-grab active:cursor-grabbing" : "cursor-default"}
+    ${isDragging ? "opacity-0 invisible pointer-events-none" : ""}
+    ${b.pinned
+      ? "bg-blue-900/30 border-blue-400/30 shadow-[0_0_12px_rgba(0,0,255,0.25)]"
+      : "bg-emperor-surface border-emperor-border"
+    }
+    ${isDragging ? "ring-2 ring-emperor-accent" : ""}
+  `;
+
+  // Render different view modes
+  if (viewMode === "list") {
+    return (
+      <Card
+        ref={setNodeRef}
+        style={style}
+        {...attributes}
+        {...(canReorder ? listeners : {})}
+        className={`${baseCardClass} p-3`}
+      >
+        <div className="flex items-center gap-3">
+          {checkboxElement}
+          {faviconElement}
+          <div className="flex-1 min-w-0">
+            {isEditingInline ? (
+              <div className="space-y-2">
+                <Input
+                  value={inlineTitle}
+                  onChange={(e) => setInlineTitle(e.target.value)}
+                />
+                <Input
+                  value={inlineUrl}
+                  onChange={(e) => setInlineUrl(e.target.value)}
+                />
+                <div className="flex gap-2">
+                  <Button size="sm" variant="primary" onClick={saveInline}>
+                    Save
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="subtle"
+                    onClick={() => setIsEditingInline(false)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <a
+                    href={b.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-semibold hover:underline block truncate"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {b.title}
+                  </a>
+                  <div className="flex items-center gap-4 mt-1">
+                    {urlElement}
+                    {bookElement}
+                    {dateElement}
+                  </div>
+                  {tagsElement && (
+                    <div className="mt-2">{tagsElement}</div>
+                  )}
+                </div>
+                {actionButtons}
+              </div>
+            )}
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
+  if (viewMode === "grid") {
+    return (
+      <Card
+        ref={setNodeRef}
+        style={style}
+        {...attributes}
+        {...(canReorder ? listeners : {})}
+        className={`${baseCardClass} p-4 h-48 flex flex-col`}
+      >
+        <div className="flex items-start gap-3 mb-3">
+          {checkboxElement}
+          <div className="flex-1 min-w-0">
+            {faviconElement}
+            <a
+              href={b.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold hover:underline block truncate"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {b.title}
+            </a>
+            {urlElement}
+            {bookElement}
+          </div>
+          {actionButtons}
+        </div>
+
+        <div className="flex-1 flex flex-col justify-between">
+          {tagsElement && (
+            <div className="mb-2">{tagsElement}</div>
+          )}
+          {dateElement && (
+            <div className="text-right">{dateElement}</div>
+          )}
+        </div>
+      </Card>
+    );
+  }
+
+  // Default card view
   return (
    <Card
   ref={setNodeRef}
   style={style}
   {...attributes}
   {...(canReorder ? listeners : {})}
-  className={`
-    border transition relative group
-    ${canReorder ? "cursor-grab active:cursor-grabbing" : "cursor-default"}
-
-    ${isDragging ? "opacity-0 invisible pointer-events-none" : ""}
-
-    ${
-      b.pinned
-        ? "bg-blue-900/30 border-blue-400/30 shadow-[0_0_12px_rgba(0,0,255,0.25)]"
-        : "bg-emperor-surface border-emperor-border"
-    }
-    ${isDragging ? "ring-2 ring-emperor-accent" : ""}
-  `}
+  className={`${baseCardClass} p-4`}
 >
       {/* Top row */}
       <div className="flex justify-between items-start gap-3">
         <div className="flex gap-3 flex-1">
-          <input
-            type="checkbox"
-            className="mt-1"
-            checked={selected}
-            onChange={() => onToggleSelected(b.id)}
-            onClick={(e) => e.stopPropagation()}
-          />
-
-          {b.faviconUrl && (
-            <img src={b.faviconUrl} className="w-5 h-5 mt-1" />
-          )}
+          {checkboxElement}
 
           <div className="flex-1">
             {isEditingInline ? (
@@ -274,121 +508,33 @@ export default function BookmarkCard({
                 </div>
               </div>
             ) : (
-              <>
-                <a
-                  href={b.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-semibold hover:underline"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {b.title}
-                </a>
-
-                <div className="text-sm text-emperor-muted flex items-center gap-2">
-                  {b.url}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      copyUrl();
-                    }}
-                    className="opacity-0 group-hover:opacity-100 transition"
+              <div className="flex gap-3">
+                {faviconElement}
+                <div className="flex-1">
+                  <a
+                    href={b.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-semibold hover:underline"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    <ClipboardIcon className="w-4 h-4" />
-                  </button>
+                    {b.title}
+                  </a>
+                  {urlElement}
+                  {bookElement}
                 </div>
-
-                {book && (
-                  <div className="text-xs text-emperor-muted mt-1">
-                    In{" "}
-                    <button
-                      className="text-emperor-accent font-medium hover:underline"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onActivateBook?.(book.id);
-                      }}
-                    >
-                      {book.name}
-                    </button>
-                  </div>
-                )}
-              </>
+              </div>
             )}
           </div>
         </div>
 
-        {!isEditingInline && (
-          <div className="flex items-center gap-3">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onPin(b.id);
-              }}
-              className="hover:scale-110 transition"
-            >
-              {b.pinned ? (
-                <StarSolid className="w-5 h-5 text-yellow-400" />
-              ) : (
-                <StarOutline className="w-5 h-5 text-emperor-muted" />
-              )}
-            </button>
-
-            <Button
-              size="sm"
-              variant="subtle"
-              onClick={(e) => {
-                e.stopPropagation();
-                onRetag(b);
-              }}
-            >
-              Retag
-            </Button>
-
-            <Button
-              size="sm"
-              variant="subtle"
-              onClick={(e) => {
-                e.stopPropagation();
-                startEdit();
-              }}
-            >
-              Edit
-            </Button>
-
-            <Button
-              size="sm"
-              variant="danger"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(b.id);
-              }}
-            >
-              Delete
-            </Button>
-          </div>
-        )}
+        {actionButtons}
       </div>
 
       {/* Tags + date */}
       <div className="mt-3 flex items-center justify-between">
-        <div className="flex flex-wrap gap-2">
-          {b.tags?.map((t) => (
-            <TagChip
-              key={t.label}
-              label={t.label}
-              active={activeTags.includes(t.label)}
-              onClick={() => onTagClick(t.label)}
-            />
-          ))}
-        </div>
-
-        <div className="text-xs text-emperor-muted ml-4">
-          {new Date(b.createdAt).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric"
-          })}
-        </div>
+        {tagsElement}
+        {dateElement && <div className="ml-4">{dateElement}</div>}
       </div>
     </Card>
   );

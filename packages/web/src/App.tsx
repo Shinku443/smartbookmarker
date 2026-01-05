@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   DndContext,
   closestCenter,
@@ -18,7 +18,7 @@ import BookmarkList from "./components/BookmarkList";
 import PinnedBookmarks from "./components/PinnedBookmarks";
 import EditBookmarkModal from "./components/modals/EditBookmarkModal";
 import AddBookmarkModal from "./components/modals/AddBookmarkModal";
-import SettingsScreen from "./components/SettingsScreen";
+import SettingsScreen, { type ViewMode, type InfoVisibility } from "./components/SettingsScreen";
 import BookManagerModal from "./components/modals/BookManagerModal";
 import Breadcrumb from "./components/Breadcrumb";
 import BookmarkCard from "./components/BookmarkCard";
@@ -28,6 +28,7 @@ import type { RichBookmark } from "./models/RichBookmark";
 import type { Book } from "./models/Book";
 
 import { useTheme } from "./hooks/useTheme";
+import { loadViewSettings, saveViewSettings } from "./storage/webStorage";
 
 /**
  * App.tsx
@@ -144,6 +145,14 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [editMode, setEditMode] = useState<"modal" | "inline">("inline");
+  const [viewMode, setViewMode] = useState<ViewMode>("card");
+  const [infoVisibility, setInfoVisibility] = useState<InfoVisibility>({
+    favicon: true,
+    url: true,
+    tags: true,
+    date: true,
+    book: true
+  });
   const [editingBookmark, setEditingBookmark] = useState<RichBookmark | null>(
     null
   );
@@ -152,6 +161,22 @@ export default function App() {
 
   const [isDraggingBookmark, setIsDraggingBookmark] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
+
+  /**
+   * Load view settings on mount
+   */
+  useEffect(() => {
+    const settings = loadViewSettings();
+    setViewMode(settings.viewMode);
+    setInfoVisibility(settings.infoVisibility);
+  }, []);
+
+  /**
+   * Save view settings when they change
+   */
+  useEffect(() => {
+    saveViewSettings({ viewMode, infoVisibility });
+  }, [viewMode, infoVisibility]);
 
   /**
    * DnD Sensors
@@ -567,6 +592,10 @@ export default function App() {
             setTheme={setTheme}
             editMode={editMode}
             setEditMode={setEditMode}
+            viewMode={viewMode}
+            setViewMode={setViewMode}
+            infoVisibility={infoVisibility}
+            setInfoVisibility={setInfoVisibility}
             onClose={() => setShowSettings(false)}
           />
         ) : (
@@ -586,6 +615,8 @@ export default function App() {
               onTagClick={handleTagClick}
               onReorderPinned={handleReorderPinned}
               onMoveToBook={handleMoveToBook}
+              viewMode={viewMode}
+              infoVisibility={infoVisibility}
             />
 
             <Breadcrumb
@@ -614,6 +645,8 @@ export default function App() {
               onReorder={handleReorderMain}
               onMoveToBook={handleMoveToBook}
               onActivateBook={handleActivateBook}
+              viewMode={viewMode}
+              infoVisibility={infoVisibility}
             />
           </>
         )}
