@@ -141,6 +141,7 @@ export default function App() {
    */
   const [search, setSearch] = useState("");
   const [activeTags, setActiveTags] = useState<string[]>([]);
+  const [activeStatuses, setActiveStatuses] = useState<string[]>([]);
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showSettings, setShowSettings] = useState(false);
@@ -181,6 +182,21 @@ export default function App() {
       }
     }
     return [...map.keys()];
+  }, [bookmarks]);
+
+  /**
+   * statuses
+   * --------
+   * Collect all unique status values across pages.
+   */
+  const statuses = useMemo(() => {
+    const set = new Set<string>();
+    for (const b of bookmarks) {
+      if (b.status) {
+        set.add(b.status);
+      }
+    }
+    return [...set];
   }, [bookmarks]);
 
   /**
@@ -546,6 +562,9 @@ export default function App() {
             tags={tags}
             activeTags={activeTags}
             setActiveTags={setActiveTags}
+            statuses={statuses}
+            activeStatuses={activeStatuses}
+            setActiveStatuses={setActiveStatuses}
             books={books}
             bookmarks={bookmarks}
             activeBookId={activeBookId}
@@ -607,6 +626,7 @@ export default function App() {
               editMode={editMode}
               search={search}
               activeTags={activeTags}
+              activeStatuses={activeStatuses}
               activeBookId={activeBookId}
               canReorder={canReorderMain}
               activeDragId={activeId}

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Input";
 import BookTree from "./BookTree";
@@ -42,6 +42,13 @@ type Props = {
   activeTags: string[];
   /** Updates the active tag filters array */
   setActiveTags: (tags: string[]) => void;
+
+  /** All unique status labels */
+  statuses: string[];
+  /** Currently active status filters */
+  activeStatuses: string[];
+  /** Updates the active status filters array */
+  setActiveStatuses: (statuses: string[]) => void;
 
   /** All books (groups) in the library */
   books: Book[];
@@ -99,6 +106,9 @@ export default function Sidebar({
   tags,
   activeTags,
   setActiveTags,
+  statuses,
+  activeStatuses,
+  setActiveStatuses,
   books,
   bookmarks,
   activeBookId,
@@ -117,6 +127,8 @@ export default function Sidebar({
   onOpenAllBookmarks,
   onShareBook
 }: Props) {
+  const [showSearchHelp, setShowSearchHelp] = useState(false);
+
   /**
    * toggleTag
    * ---------
@@ -131,6 +143,30 @@ export default function Sidebar({
     );
   }
 
+  /**
+   * toggleStatus
+   * ------------
+   * Toggles a status in the activeStatuses array.
+   */
+  function toggleStatus(status: string) {
+    setActiveStatuses(
+      activeStatuses.includes(status)
+        ? activeStatuses.filter((s) => s !== status)
+        : [...activeStatuses, status]
+    );
+  }
+
+  /**
+   * Status display names and emojis
+   */
+  const statusOptions = [
+    { key: "favorite", label: "⭐ Favorite", emoji: "⭐" },
+    { key: "read_later", label: "📖 Read Later", emoji: "📖" },
+    { key: "archive", label: "📦 Archive", emoji: "📦" },
+    { key: "review", label: "🔍 Review", emoji: "🔍" },
+    { key: "broken", label: "❌ Broken", emoji: "❌" }
+  ];
+
   return (
     <div className="h-full flex flex-col bg-emperor-sidebar border-r border-emperor-border">
       {/* ------------------------------------------------------------------ */}
@@ -144,11 +180,35 @@ export default function Sidebar({
           </Button>
         </div>
 
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search pages…"
-        />
+        <div className="relative">
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search pages… (try 'url:github' or 'tag:javascript')"
+          />
+          <button
+            onClick={() => setShowSearchHelp(!showSearchHelp)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-emperor-muted hover:text-emperor-text text-sm"
+            title="Advanced search help"
+          >
+            ?
+          </button>
+
+          {showSearchHelp && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-emperor-surface border border-emperor-border rounded-md p-3 text-xs z-10 shadow-lg">
+              <div className="font-semibold mb-2">Advanced Search</div>
+              <div className="space-y-1 text-emperor-muted">
+                <div><code>"exact phrase"</code> - Search for exact matches</div>
+                <div><code>url:github</code> - Search in URLs</div>
+                <div><code>title:react</code> - Search in titles</div>
+                <div><code>tag:javascript</code> - Search by tags</div>
+                <div><code>status:favorite</code> - Search by status</div>
+                <div><code>content:blog</code> - Search in descriptions</div>
+                <div><code>notes:important</code> - Search in personal notes</div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ------------------------------------------------------------------ */}
@@ -206,6 +266,32 @@ export default function Sidebar({
                   onClick={() => toggleTag(tag)}
                 >
                   #{tag}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Status */}
+        <div className="px-4">
+          <h3 className="text-emperor-muted text-xs uppercase tracking-wide mb-2">
+            Status
+          </h3>
+
+          <div className="flex flex-wrap gap-2">
+            {statusOptions.map((status) => {
+              const isActive = activeStatuses.includes(status.key);
+              return (
+                <button
+                  key={status.key}
+                  className={`text-xs px-2 py-1 rounded-full border ${
+                    isActive
+                      ? "bg-emperor-surfaceStrong border-emperor-border"
+                      : "border-emperor-border hover:bg-emperor-surface"
+                  }`}
+                  onClick={() => toggleStatus(status.key)}
+                >
+                  {status.emoji} {status.key.replace("_", " ")}
                 </button>
               );
             })}

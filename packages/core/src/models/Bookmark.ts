@@ -5,6 +5,14 @@ export interface BookmarkTag {
   type: TagType;
 }
 
+export type BookmarkStatus =
+  | "active"      // Default active state
+  | "favorite"    // User's favorite
+  | "archive"     // Archived for later
+  | "read_later"  // Want to read later
+  | "review"      // Need to review/update
+  | "broken";     // Link is broken
+
 export interface Bookmark {
   id: string;
   bookId: string | null
@@ -18,6 +26,10 @@ export interface Bookmark {
   thumbnailUrl?: string;
 
   tags: BookmarkTag[];
+
+  status?: BookmarkStatus;
+
+  notes?: string; // Personal notes about the bookmark
 
   source: "manual" | "imported";
 

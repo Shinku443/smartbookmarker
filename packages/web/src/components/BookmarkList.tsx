@@ -7,6 +7,106 @@ import MultiSelectToolbar from "./MultiSelectToolbar";
 import type { RichBookmark } from "../models/RichBookmark";
 import type { Book } from "../models/Book";
 
+// Advanced search utilities
+function parseAdvancedSearch(query: string): {
+  terms: string[];
+  fields: { [key: string]: string[] };
+  operators: string[];
+} {
+  const result = {
+    terms: [] as string[],
+    fields: {} as { [key: string]: string[] },
+    operators: [] as string[]
+  };
+
+  // Handle quoted strings first
+  const quotedMatches = query.match(/"([^"]*)"/g) || [];
+  const quotedTerms = quotedMatches.map(match => match.slice(1, -1));
+
+  // Remove quoted strings from query for further processing
+  let processedQuery = query;
+  quotedMatches.forEach(match => {
+    processedQuery = processedQuery.replace(match, '');
+  });
+
+  // Handle field-specific searches
+  const fieldRegex = /(\w+):([^\s]+)/g;
+  let fieldMatch;
+  while ((fieldMatch = fieldRegex.exec(processedQuery)) !== null) {
+    const [, field, value] = fieldMatch;
+    if (!result.fields[field]) result.fields[field] = [];
+    result.fields[field].push(value);
+    processedQuery = processedQuery.replace(fieldMatch[0], '');
+  }
+
+  // Add quoted terms to general terms
+  result.terms.push(...quotedTerms);
+
+  // Split remaining query into terms
+  const remainingTerms = processedQuery.trim().split(/\s+/).filter(term => term.length > 0);
+  result.terms.push(...remainingTerms);
+
+  return result;
+}
+
+function advancedSearch(bookmarks: RichBookmark[], query: string): RichBookmark[] {
+  if (!query.trim()) return bookmarks;
+
+  const parsed = parseAdvancedSearch(query.toLowerCase());
+
+  return bookmarks.filter(bookmark => {
+    // Check field-specific searches
+    for (const [field, values] of Object.entries(parsed.fields)) {
+      const fieldValue = getFieldValue(bookmark, field)?.toLowerCase();
+      if (!fieldValue) return false;
+
+      const matchesAnyValue = values.some(value =>
+        fieldValue.includes(value.toLowerCase())
+      );
+      if (!matchesAnyValue) return false;
+    }
+
+    // Check general terms
+    if (parsed.terms.length > 0) {
+      const searchableText = [
+        bookmark.title,
+        bookmark.url,
+        bookmark.description,
+        bookmark.tags?.map(t => t.label).join(' '),
+        bookmark.notes
+      ].filter(Boolean).join(' ').toLowerCase();
+
+      const matchesAllTerms = parsed.terms.every(term =>
+        searchableText.includes(term.toLowerCase())
+      );
+      if (!matchesAllTerms) return false;
+    }
+
+    return true;
+  });
+}
+
+function getFieldValue(bookmark: RichBookmark, field: string): string | undefined {
+  switch (field) {
+    case 'title':
+      return bookmark.title;
+    case 'url':
+      return bookmark.url;
+    case 'content':
+    case 'description':
+      return bookmark.description;
+    case 'notes':
+      return bookmark.notes;
+    case 'tag':
+    case 'tags':
+      return bookmark.tags?.map(t => t.label).join(' ');
+    case 'status':
+      return bookmark.status;
+    default:
+      return undefined;
+  }
+}
+
 /**
  * BookmarkList.tsx
  * -----------------
@@ -62,6 +162,9 @@ type Props = {
   /** Active tag filters (multi‑select, OR logic) */
   activeTags: string[];
 
+  /** Active status filters */
+  activeStatuses: string[];
+
   /** Active book context (null = show all books) */
   activeBookId: string | null;
 
@@ -91,6 +194,7 @@ export default function BookmarkList({
   onMoveToBook,
   search,
   activeTags,
+  activeStatuses,
   activeBookId,
   canReorder,
   activeDragId,
@@ -178,7 +282,8 @@ export default function BookmarkList({
    * Applies:
    *   1. Fuzzy search (Fuse.js)
    *   2. Multi‑tag filtering (OR logic)
-   *   3. Book context filter (activeBookId + descendants)
+   *   3. Status filtering (OR logic)
+   *   4. Book context filter (activeBookId + descendants)
    *
    * IMPORTANT:
    *   Filtering happens on the ordered list passed from App.tsx,
@@ -187,14 +292,21 @@ export default function BookmarkList({
   const filteredBookmarks = useMemo(() => {
     let list = bookmarks;
 
-    /** 1. Fuzzy search */
+    /** 1. Advanced search (includes field-specific and quoted searches) */
     const query = search.trim();
     if (query) {
-      const fuse = new Fuse(list, {
-        keys: ["title", "url", "tags.label"],
-        threshold: 0.35
-      });
-      list = fuse.search(query).map((r) => r.item);
+      // Check if query contains advanced search syntax
+      const hasFieldSearch = /(\w+):/.test(query) || /"/.test(query);
+      if (hasFieldSearch) {
+        list = advancedSearch(list, query);
+      } else {
+        // Fall back to fuzzy search for simple queries
+        const fuse = new Fuse(list, {
+          keys: ["title", "url", "tags.label", "description", "notes"],
+          threshold: 0.35
+        });
+        list = fuse.search(query).map((r) => r.item);
+      }
     }
 
     /** 2. Multi‑tag OR filtering */
@@ -204,14 +316,21 @@ export default function BookmarkList({
       );
     }
 
-    /** 3. Book scoping (includes descendants) */
+    /** 3. Status filtering */
+    if (activeStatuses.length > 0) {
+      list = list.filter((b) =>
+        b.status && activeStatuses.includes(b.status)
+      );
+    }
+
+    /** 4. Book scoping (includes descendants) */
     if (activeBookId) {
       const descendantBookIds = getDescendantBookIds(activeBookId, books);
       list = list.filter((b) => b.bookId && descendantBookIds.includes(b.bookId));
     }
 
     return list;
-  }, [bookmarks, search, activeTags, activeBookId, books]);
+  }, [bookmarks, search, activeTags, activeStatuses, activeBookId, books]);
 
   /**
    * ids

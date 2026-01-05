@@ -167,6 +167,7 @@ export default function BookmarkCard({
   const [inlineTitle, setInlineTitle] = useState(b.title);
   const [inlineUrl, setInlineUrl] = useState(b.url);
   const [isEditingInline, setIsEditingInline] = useState(false);
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
 
   const {
     attributes,
@@ -212,7 +213,27 @@ export default function BookmarkCard({
     navigator.clipboard.writeText(b.url);
   }
 
+  function updateStatus(newStatus: string) {
+    const updatedBookmark = {
+      ...b,
+      status: newStatus === 'active' ? undefined : newStatus as any,
+      updatedAt: Date.now()
+    };
+    onSaveInline(updatedBookmark);
+  }
+
   const book = books.find((bk) => bk.id === b.bookId);
+
+  const statusOptions = [
+    { key: 'active', label: 'Active', emoji: '📄' },
+    { key: 'favorite', label: 'Favorite', emoji: '⭐' },
+    { key: 'read_later', label: 'Read Later', emoji: '📖' },
+    { key: 'archive', label: 'Archive', emoji: '📦' },
+    { key: 'review', label: 'Review', emoji: '🔍' },
+    { key: 'broken', label: 'Broken', emoji: '❌' }
+  ];
+
+  const currentStatus = statusOptions.find(s => s.key === (b.status || 'active'));
 
   return (
    <Card
@@ -332,6 +353,42 @@ export default function BookmarkCard({
                 <StarOutline className="w-5 h-5 text-emperor-muted" />
               )}
             </button>
+
+            {/* Status Selector */}
+            <div className="relative">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowStatusDropdown(!showStatusDropdown);
+                }}
+                className="text-sm px-2 py-1 rounded border border-emperor-border hover:bg-emperor-surface transition flex items-center gap-1"
+                title={`Status: ${currentStatus?.label}`}
+              >
+                <span>{currentStatus?.emoji}</span>
+                <span className="text-xs">▼</span>
+              </button>
+
+              {showStatusDropdown && (
+                <div className="absolute right-0 top-full mt-1 bg-emperor-surface border border-emperor-border rounded-md shadow-lg z-10 min-w-[120px]">
+                  {statusOptions.map((status) => (
+                    <button
+                      key={status.key}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        updateStatus(status.key);
+                        setShowStatusDropdown(false);
+                      }}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-emperor-surfaceStrong flex items-center gap-2 ${
+                        status.key === (b.status || 'active') ? 'bg-emperor-accent/10 text-emperor-accent' : ''
+                      }`}
+                    >
+                      <span>{status.emoji}</span>
+                      <span>{status.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <Button
               size="sm"
