@@ -52,6 +52,14 @@ type Props = {
   /** Sets the active book filter */
   setActiveBookId: (id: string | null) => void;
 
+  /** Current sort mode */
+  sortBy: "default" | "recent";
+  /** Sets the sort mode */
+  setSortBy: (sort: "default" | "recent") => void;
+
+  /** Ref for search input (for keyboard shortcuts) */
+  searchInputRef?: React.RefObject<HTMLInputElement>;
+
   /** Creates a new book inline (BookTree → App.tsx → addBook) */
   onCreateBook: (parentId: string | null, name: string) => void;
   /** Moves a book to a new parent */
@@ -103,6 +111,9 @@ export default function Sidebar({
   bookmarks,
   activeBookId,
   setActiveBookId,
+  sortBy,
+  setSortBy,
+  searchInputRef,
   onCreateBook,
   onMoveBook,
   onBookmarkDrop,
@@ -144,11 +155,36 @@ export default function Sidebar({
           </Button>
         </div>
 
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search pages…"
-        />
+        <div className="space-y-2">
+          <Input
+            ref={searchInputRef}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search pages…"
+          />
+
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="subtle"
+              onClick={() => setActiveBookId(null)}
+              className={activeBookId === null ? "bg-emperor-surfaceStrong" : ""}
+            >
+              All Pages
+            </Button>
+            <Button
+              size="sm"
+              variant="subtle"
+              onClick={() => {
+                setSortBy(sortBy === "recent" ? "default" : "recent");
+                setActiveBookId(null);
+              }}
+              className={sortBy === "recent" ? "bg-emperor-surfaceStrong" : ""}
+            >
+              Recent
+            </Button>
+          </div>
+        </div>
       </div>
 
       {/* ------------------------------------------------------------------ */}
@@ -206,6 +242,49 @@ export default function Sidebar({
                   onClick={() => toggleTag(tag)}
                 >
                   #{tag}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Content Types */}
+        <div className="px-4">
+          <h3 className="text-emperor-muted text-xs uppercase tracking-wide mb-2">
+            Content Types
+          </h3>
+
+          <div className="flex flex-wrap gap-2">
+            {[
+              { label: "Articles", search: "article OR blog OR news OR post" },
+              { label: "Videos", search: "youtube.com OR vimeo.com OR video OR watch" },
+              { label: "Images", search: "imgur.com OR flickr.com OR image OR photo OR picture" },
+              { label: "Audio", search: "soundcloud.com OR spotify.com OR podcast OR music OR audio" },
+              { label: "Documents", search: "pdf OR doc OR docx OR ppt OR xls OR drive.google.com" },
+              { label: "Code", search: "github.com OR gitlab.com OR code OR repository OR gist" }
+            ].map((type) => {
+              const isActive = search.includes(type.search);
+              return (
+                <button
+                  key={type.label}
+                  className={`text-xs px-2 py-1 rounded-full border ${
+                    isActive
+                      ? "bg-blue-500/20 border-blue-400 text-blue-300"
+                      : "border-emperor-border hover:bg-emperor-surface"
+                  }`}
+                  onClick={() => {
+                    if (isActive) {
+                      // Remove the search term
+                      setSearch(search.replace(new RegExp(`\\s*${type.search}\\s*`, 'gi'), '').trim());
+                    } else {
+                      // Add the search term
+                      const newSearch = search ? `${search} ${type.search}` : type.search;
+                      setSearch(newSearch);
+                    }
+                  }}
+                  title={`Filter by ${type.label.toLowerCase()}`}
+                >
+                  {type.label}
                 </button>
               );
             })}

@@ -45,6 +45,7 @@ type Props = {
   /** CRUD + action callbacks for individual bookmarks */
   onDelete: (id: string) => void;
   onPin: (id: string) => void;
+  onToggleReadLater: (id: string) => void;
   onRetag: (b: RichBookmark) => void;
   onEditRequest: (b: RichBookmark) => void;
   onSaveInline: (b: RichBookmark) => void;
@@ -83,6 +84,7 @@ export default function BookmarkList({
   editMode,
   onDelete,
   onPin,
+  onToggleReadLater,
   onRetag,
   onEditRequest,
   onSaveInline,
@@ -237,6 +239,7 @@ export default function BookmarkList({
                 activeTags={activeTags}
                 onDelete={onDelete}
                 onPin={onPin}
+                onToggleReadLater={onToggleReadLater}
                 onRetag={onRetag}
                 onEditRequest={onEditRequest}
                 onSaveInline={onSaveInline}

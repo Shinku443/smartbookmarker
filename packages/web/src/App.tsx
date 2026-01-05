@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import {
   DndContext,
   closestCenter,
@@ -96,11 +96,12 @@ export default function App() {
     addBookmark,
     deleteBookmark,
     togglePin,
+    toggleReadLater,
     retag,
     updateBookmark,
     importHtml,
 
-    addBook: rawAddBook,
+    addBook,
     renameBook,
     deleteBook,
     moveBook,
@@ -114,17 +115,51 @@ export default function App() {
   } = useBookmarks();
 
   /**
-   * addBook
-   * -------
-   * UI‑facing signature:
+   * createBook
+   * ----------
+   * UI‑facing signature for creating books:
    *   (parentId: string | null, name: string) => void
    *
    * This matches:
    *   - BookTree onCreateBook
    *   - Sidebar onCreateBook
    */
-  function addBook(parentId: string | null, name: string): void {
-    (rawAddBook as any)(name, parentId);
+  function createBook(parentId: string | null, name: string): void {
+    addBook(name, parentId);
+  }
+
+  /**
+   * addBookmarkWithDescription
+   * --------------------------
+   * Wrapper for addBookmark that includes description/notes.
+   * UI-facing signature for bookmark creation with notes.
+   *
+   * @param title - Bookmark title
+   * @param url - Bookmark URL
+   * @param description - Optional description/notes
+   * @param bookId - Target book ID, or null for root
+   */
+  async function addBookmarkWithDescription(
+    title: string,
+    url: string,
+    description: string | null,
+    bookId: string | null
+  ): Promise<void> {
+    await addBookmark(title, url, bookId);
+
+    // If description provided, update the bookmark with description
+    if (description) {
+      // Find the newly created bookmark (most recent)
+      const newBookmark = bookmarks.find(b =>
+        b.title === title && b.url === url && b.bookId === bookId
+      );
+      if (newBookmark) {
+        updateBookmark({
+          ...newBookmark,
+          description
+        });
+      }
+    }
   }
 
   /**
@@ -141,6 +176,7 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<"default" | "recent">("default");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [editMode, setEditMode] = useState<"modal" | "inline">("inline");
@@ -152,6 +188,10 @@ export default function App() {
 
   const [isDraggingBookmark, setIsDraggingBookmark] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
+
+  // Keyboard navigation state
+  const [keyboardSelectedId, setKeyboardSelectedId] = useState<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   /**
    * DnD Sensors
@@ -199,10 +239,11 @@ export default function App() {
    * --------------
    * Ordered, unfiltered source of truth for the main list.
    * Book scoping happens later in BookmarkList.
+   * Supports recent sorting (by createdAt descending).
    */
   const sortedByOrder = useMemo(() => {
     const idToBookmark = new Map(bookmarks.map((b) => [b.id, b]));
-    const result: RichBookmark[] = [];
+    let result: RichBookmark[] = [];
 
     if (activeBookId) {
       const book = books.find((b) => b.id === activeBookId);
@@ -235,8 +276,13 @@ export default function App() {
       }
     }
 
+    // Apply recent sorting if enabled
+    if (sortBy === "recent" && !activeBookId) {
+      result = result.sort((a, b) => b.createdAt - a.createdAt);
+    }
+
     return result;
-  }, [bookmarks, books, rootOrder, activeBookId]);
+  }, [bookmarks, books, rootOrder, activeBookId, sortBy]);
 
   /**
    * sortedPinned
@@ -259,6 +305,118 @@ export default function App() {
 
     return result;
   }, [bookmarks, pinnedOrder]);
+
+  /**
+   * Keyboard Shortcuts Handler
+   * --------------------------
+   * Global keyboard shortcuts for power users.
+   * Supports navigation, actions, and quick access.
+   *
+   * COMPLEXITY NOTE
+   * ---------------
+   * This useEffect depends on sortedByOrder which is defined after it in the file.
+   * TypeScript allows this as long as the dependency is correctly declared.
+   * The effect handles global keyboard events while ignoring inputs/textareas.
+   */
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      // Ignore if user is typing in an input/textarea
+      if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+
+      switch (key) {
+        case '/':
+          // Focus search bar
+          event.preventDefault();
+          searchInputRef.current?.focus();
+          break;
+
+        case 'j':
+        case 'arrowdown':
+          // Navigate to next bookmark
+          event.preventDefault();
+          const currentIndex = keyboardSelectedId
+            ? sortedByOrder.findIndex(b => b.id === keyboardSelectedId)
+            : -1;
+          const nextIndex = Math.min(currentIndex + 1, sortedByOrder.length - 1);
+          if (sortedByOrder[nextIndex]) {
+            setKeyboardSelectedId(sortedByOrder[nextIndex].id);
+          }
+          break;
+
+        case 'k':
+        case 'arrowup':
+          // Navigate to previous bookmark
+          event.preventDefault();
+          const currentIndexUp = keyboardSelectedId
+            ? sortedByOrder.findIndex(b => b.id === keyboardSelectedId)
+            : 0;
+          const prevIndex = Math.max(currentIndexUp - 1, 0);
+          if (sortedByOrder[prevIndex]) {
+            setKeyboardSelectedId(sortedByOrder[prevIndex].id);
+          }
+          break;
+
+        case 'enter':
+          // Open selected bookmark
+          event.preventDefault();
+          if (keyboardSelectedId) {
+            const bookmark = bookmarks.find(b => b.id === keyboardSelectedId);
+            if (bookmark?.url) {
+              window.open(bookmark.url, '_blank', 'noopener,noreferrer');
+            }
+          }
+          break;
+
+        case 'p':
+          // Pin/unpin bookmark
+          event.preventDefault();
+          if (keyboardSelectedId) {
+            togglePin(keyboardSelectedId);
+          }
+          break;
+
+        case 'r':
+          // Toggle read later
+          event.preventDefault();
+          if (keyboardSelectedId) {
+            toggleReadLater(keyboardSelectedId);
+          }
+          break;
+
+        case 'd':
+          // Delete bookmark
+          event.preventDefault();
+          if (keyboardSelectedId && confirm('Delete this bookmark?')) {
+            deleteBookmark(keyboardSelectedId);
+            setKeyboardSelectedId(null);
+          }
+          break;
+
+        case 'e':
+          // Edit bookmark
+          event.preventDefault();
+          if (keyboardSelectedId) {
+            const bookmark = bookmarks.find(b => b.id === keyboardSelectedId);
+            if (bookmark) {
+              setEditingBookmark(bookmark);
+            }
+          }
+          break;
+
+        case 'escape':
+          // Clear selection
+          setKeyboardSelectedId(null);
+          break;
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [keyboardSelectedId, sortedByOrder, bookmarks, togglePin, toggleReadLater, deleteBookmark]);
 
   /**
    * handleImport / handleExport
@@ -519,6 +677,7 @@ export default function App() {
               onSaveInline={() => { }}
               onDelete={() => { }}
               onPin={() => { }}
+              onToggleReadLater={() => { }}
               onRetag={() => { }}
               onTagClick={() => { }}
               books={books}
@@ -545,7 +704,10 @@ export default function App() {
             bookmarks={bookmarks}
             activeBookId={activeBookId}
             setActiveBookId={setActiveBookId}
-            onCreateBook={addBook}
+            sortBy={sortBy}
+            setSortBy={setSortBy}
+            searchInputRef={searchInputRef}
+            onCreateBook={createBook}
             onMoveBook={moveBook}
             onBookmarkDrop={assignBookmarkToBook}
             onImport={handleImport}
@@ -580,6 +742,7 @@ export default function App() {
               activeTags={activeTags}
               onDelete={deleteBookmark}
               onPin={togglePin}
+              onToggleReadLater={toggleReadLater}
               onRetag={handleRetag}
               onEditRequest={setEditingBookmark}
               onSaveInline={handleInlineSave}
@@ -607,6 +770,7 @@ export default function App() {
               activeDragId={activeId}
               onDelete={deleteBookmark}
               onPin={togglePin}
+              onToggleReadLater={toggleReadLater}
               onRetag={handleRetag}
               onEditRequest={setEditingBookmark}
               onSaveInline={handleInlineSave}
@@ -623,7 +787,7 @@ export default function App() {
         <EditBookmarkModal
           bookmark={editingBookmark}
           books={books}
-          onCreateBook={addBook}
+          onCreateBook={createBook}
           onSave={updateBookmark}
           onClose={() => setEditingBookmark(null)}
         />
@@ -632,8 +796,8 @@ export default function App() {
       {showAddModal && (
         <AddBookmarkModal
           books={books}
-          onAddPage={addBookmark}
-          onCreateBook={addBook}
+          onAddPage={addBookmarkWithDescription}
+          onCreateBook={createBook}
           onClose={() => setShowAddModal(false)}
         />
       )}
@@ -644,7 +808,7 @@ export default function App() {
           onReorderBooks={reorderBooks}
           onRenameBook={renameBook}
           onDeleteBook={deleteBook}
-          onCreateBook={addBook}
+          onCreateBook={createBook}
           onClose={() => setShowBookManager(false)}
         />
       )}

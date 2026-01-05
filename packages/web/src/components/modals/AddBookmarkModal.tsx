@@ -29,7 +29,7 @@ type Props = {
   books: Book[];
 
   /** Creates a new bookmark */
-  onAddPage: (title: string, url: string, bookId: string | null) => void;
+  onAddPage: (title: string, url: string, description: string | null, bookId: string | null) => void;
 
   /** Creates a new book (root‑level only in this modal) */
   onCreateBook: (parentId: string | null, name: string) => void;
@@ -46,6 +46,7 @@ export default function AddBookmarkModal({
 }: Props) {
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
+  const [description, setDescription] = useState("");
   const [bookId, setBookId] = useState<string | null>(null);
   const [newBookName, setNewBookName] = useState("");
 
@@ -63,7 +64,7 @@ export default function AddBookmarkModal({
   /** Creates the bookmark */
   function handleSubmit() {
     if (!title.trim() || !url.trim()) return;
-    onAddPage(title.trim(), url.trim(), bookId);
+    onAddPage(title.trim(), url.trim(), description.trim() || null, bookId);
     onClose();
   }
 
