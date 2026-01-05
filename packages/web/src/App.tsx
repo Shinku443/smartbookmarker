@@ -26,6 +26,7 @@ import BookmarkCard from "./components/BookmarkCard";
 import { useBookmarks } from "./hooks/useBookmarks";
 import type { RichBookmark } from "./models/RichBookmark";
 import type { Book } from "./models/Book";
+import { SyncDebugPanel } from "./components/SyncDebugPanel";
 
 import { useTheme } from "./hooks/useTheme";
 
@@ -206,7 +207,7 @@ export default function App() {
 
     if (activeBookId) {
       const book = books.find((b) => b.id === activeBookId);
-      const order = book?.order ?? [];
+      const order = Array.isArray(book?.order) ? book.order : [];
 
       for (const id of order) {
         const b = idToBookmark.get(id);
@@ -531,7 +532,11 @@ export default function App() {
           </div>
         ) : null}
       </DragOverlay>
-
+      
+<div>
+  {/* {import.meta.env.VITE_DEBUG_SYNC && <SyncDebugPanel />} */}
+  { <SyncDebugPanel />}
+</div>
       <Layout
         sidebar={
           <Sidebar

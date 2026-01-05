@@ -12,6 +12,9 @@ model Book {
   title     String
   emoji     String?
   order     BigInt
+  parentBookId String?
+  parentBook Book?   @relation("BookHierarchy", fields: [parentBookId], references: [id])
+  childBooks Book[]  @relation("BookHierarchy")
   pages     Page[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -19,8 +22,8 @@ model Book {
 
 model Page {
   id        String   @id @default(cuid())
-  bookId    String
-  book      Book     @relation(fields: [bookId], references: [id])
+  bookId    String?
+  book      Book?    @relation(fields: [bookId], references: [id])
   title     String
   content   String?
   order     BigInt

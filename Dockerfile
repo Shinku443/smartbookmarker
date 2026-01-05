@@ -2,6 +2,9 @@ FROM node:20
 
 WORKDIR /app
 
+# Install pnpm
+RUN npm install -g pnpm
+
 # Copy workspace metadata
 COPY package.json pnpm-workspace.yaml ./
 
@@ -12,13 +15,13 @@ COPY packages ./packages
 COPY .env ./
 
 # Install dependencies
-RUN npm install
+RUN pnpm install
+
+# Generate Prisma Client
+RUN npx prisma generate --schema=packages/server/prisma/schema.prisma
 
 # Build TypeScript
-RUN npm run build
-
-# Generate Prisma Client inside Docker
-RUN npx prisma generate --schema=packages/server/prisma/schema.prisma
+RUN pnpm run build
 
 EXPOSE 4000
 CMD ["node", "packages/server/dist/index.js"]

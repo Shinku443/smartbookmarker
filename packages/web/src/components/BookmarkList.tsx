@@ -156,12 +156,29 @@ export default function BookmarkList({
   }
 
   /**
+   * getDescendantBookIds
+   * --------------------
+   * Recursively collects all descendant book IDs for a given book.
+   * Used for hierarchical bookmark filtering.
+   */
+  function getDescendantBookIds(bookId: string, allBooks: Book[]): string[] {
+    const descendants: string[] = [bookId];
+    const children = allBooks.filter((b) => b.parentBookId === bookId);
+    
+    for (const child of children) {
+      descendants.push(...getDescendantBookIds(child.id, allBooks));
+    }
+    
+    return descendants;
+  }
+
+  /**
    * filteredBookmarks
    * -----------------
    * Applies:
    *   1. Fuzzy search (Fuse.js)
    *   2. Multi‑tag filtering (OR logic)
-   *   3. Book context filter (activeBookId)
+   *   3. Book context filter (activeBookId + descendants)
    *
    * IMPORTANT:
    *   Filtering happens on the ordered list passed from App.tsx,
@@ -187,13 +204,14 @@ export default function BookmarkList({
       );
     }
 
-    /** 3. Book scoping */
+    /** 3. Book scoping (includes descendants) */
     if (activeBookId) {
-      list = list.filter((b) => b.bookId === activeBookId);
+      const descendantBookIds = getDescendantBookIds(activeBookId, books);
+      list = list.filter((b) => b.bookId && descendantBookIds.includes(b.bookId));
     }
 
     return list;
-  }, [bookmarks, search, activeTags, activeBookId]);
+  }, [bookmarks, search, activeTags, activeBookId, books]);
 
   /**
    * ids
