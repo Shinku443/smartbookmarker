@@ -1,11 +1,11 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { RouteProp } from '@react-navigation/native';
-import { StackNavigationProp } from '@react-navigation/stack';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 
 type BookmarkDetailScreenRouteProp = RouteProp<RootStackParamList, 'BookmarkDetail'>;
-type BookmarkDetailScreenNavigationProp = StackNavigationProp<RootStackParamList, 'BookmarkDetail'>;
+type BookmarkDetailScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'BookmarkDetail'>;
 
 interface Props {
   route: BookmarkDetailScreenRouteProp;
