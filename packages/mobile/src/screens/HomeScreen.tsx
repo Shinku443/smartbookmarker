@@ -14,7 +14,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { Bookmark } from '@smart/core';
 
-type HomeScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Home'>;
+
 
 // Mock data for now - will integrate with actual API later
 const mockBookmarks: Bookmark[] = [
@@ -39,7 +39,7 @@ const mockBookmarks: Bookmark[] = [
 ];
 
 export default function HomeScreen() {
-  const navigation = useNavigation<HomeScreenNavigationProp>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [searchQuery, setSearchQuery] = useState('');
   const [bookmarks] = useState<Bookmark[]>(mockBookmarks);
 

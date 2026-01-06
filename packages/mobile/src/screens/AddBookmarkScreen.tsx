@@ -11,13 +11,7 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 
-type AddBookmarkScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'AddBookmark'>;
-
-interface Props {
-  navigation: AddBookmarkScreenNavigationProp;
-}
-
-export default function AddBookmarkScreen({ navigation }: Props) {
+export default function AddBookmarkScreen({ navigation }: { navigation: any }) {
   const [title, setTitle] = useState('');
   const [url, setUrl] = useState('');
   const [tags, setTags] = useState('');

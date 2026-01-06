@@ -3,13 +3,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-nati
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 
-type SettingsScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Settings'>;
-
-interface Props {
-  navigation: SettingsScreenNavigationProp;
-}
-
-export default function SettingsScreen({ navigation }: Props) {
+export default function SettingsScreen({ navigation }: { navigation: any }) {
   const settings = [
     { title: 'AI Settings', subtitle: 'Configure AI providers and features' },
     { title: 'Display Settings', subtitle: 'Customize appearance and layout' },

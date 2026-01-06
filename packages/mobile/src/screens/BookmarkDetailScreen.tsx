@@ -5,14 +5,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RootStackParamList } from '../navigation/AppNavigator';
 
 type BookmarkDetailScreenRouteProp = RouteProp<RootStackParamList, 'BookmarkDetail'>;
-type BookmarkDetailScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'BookmarkDetail'>;
-
-interface Props {
-  route: BookmarkDetailScreenRouteProp;
-  navigation: BookmarkDetailScreenNavigationProp;
-}
-
-export default function BookmarkDetailScreen({ route, navigation }: Props) {
+export default function BookmarkDetailScreen({ route, navigation }: { route: any; navigation: any }) {
   const { bookmarkId } = route.params;
 
   // Mock bookmark data - will integrate with actual data later
