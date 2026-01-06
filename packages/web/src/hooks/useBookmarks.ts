@@ -12,6 +12,7 @@ import { PersistedData } from "../models/PersistedData";
 import { SyncClient } from "../sync/syncClient";
 import type { SyncState, SyncPayload } from "../sync/types";
 import { syncLog } from "../sync/logger";
+import { createPage } from "../api/pages";
 
 /**
  * useBookmarks Hook
@@ -448,49 +449,94 @@ export function useBookmarks() {
     bookId: string | null,
     userTagLabels: string[] = []
   ) {
-    const autoLabels = await generateTags(title, url);
-    const now = Date.now();
+    try {
+      // Try to create via API first (for scraping)
+      const apiBookmark = await createPage({
+        bookId: bookId ?? undefined,
+        title,
+        url,
+        content: "" // Will be filled by scraping
+      });
 
-    const autoTags: BookmarkTag[] = autoLabels.map((label) => ({
-      label,
-      type: "auto" as BookmarkTag["type"]
-    }));
+      // Convert API response to RichBookmark format
+      const newBookmark: RichBookmark = {
+        id: apiBookmark.id,
+        bookId: apiBookmark.bookId,
+        title: apiBookmark.title,
+        url: url, // Use the original URL since API might not return it
+        createdAt: new Date(apiBookmark.createdAt).getTime(),
+        updatedAt: new Date(apiBookmark.updatedAt).getTime(),
+        faviconUrl: apiBookmark.faviconUrl || computeFavicon(url),
+        tags: [], // API doesn't return tags in this format yet
+        source: "manual" as const,
+        pinned: apiBookmark.pinned,
+        extractedText: apiBookmark.extractedText || undefined,
+        screenshotUrl: apiBookmark.screenshotUrl || undefined,
+        metaDescription: apiBookmark.metaDescription || undefined
+      };
 
-    const userTags: BookmarkTag[] = userTagLabels.map((label) => ({
-      label,
-      type: "user" as BookmarkTag["type"]
-    }));
+      const nextBookmarks = [...bookmarks, newBookmark];
+      let nextBooks = books;
+      let nextRootOrder = rootOrder;
+      if (bookId === null) {
+        nextRootOrder = [...rootOrder, newBookmark.id];
+      } else {
+        nextBooks = books.map((b) =>
+          b.id === bookId
+            ? { ...b, order: [...(b.order ?? []), newBookmark.id] }
+            : b
+        );
+      }
 
-    const id = crypto.randomUUID();
+      persistAll(nextBookmarks, nextBooks, nextRootOrder);
+    } catch (error) {
+      console.error("Failed to create bookmark via API, falling back to local:", error);
 
-    const newBookmark: RichBookmark = {
-      id,
-      bookId,
-      title,
-      url,
-      createdAt: now,
-      updatedAt: now,
-      faviconUrl: computeFavicon(url),
-      tags: [...autoTags, ...userTags],
-      source: "manual",
-      pinned: false
-    };
+      // Fallback to local creation
+      const autoLabels = await generateTags(title, url);
+      const now = Date.now();
 
-    const nextBookmarks = [...bookmarks, newBookmark];
+      const autoTags: BookmarkTag[] = autoLabels.map((label) => ({
+        label,
+        type: "auto" as BookmarkTag["type"]
+      }));
 
-    let nextBooks = books;
-    let nextRootOrder = rootOrder;
-    if (bookId === null) {
-      nextRootOrder = [...rootOrder, id];
-    } else {
-      nextBooks = books.map((b) =>
-        b.id === bookId
-          ? { ...b, order: [...(b.order ?? []), id] }
-          : b
-      );
+      const userTags: BookmarkTag[] = userTagLabels.map((label) => ({
+        label,
+        type: "user" as BookmarkTag["type"]
+      }));
+
+      const id = crypto.randomUUID();
+
+      const newBookmark: RichBookmark = {
+        id,
+        bookId,
+        title,
+        url,
+        createdAt: now,
+        updatedAt: now,
+        faviconUrl: computeFavicon(url),
+        tags: [...autoTags, ...userTags],
+        source: "manual",
+        pinned: false
+      };
+
+      const nextBookmarks = [...bookmarks, newBookmark];
+
+      let nextBooks = books;
+      let nextRootOrder = rootOrder;
+      if (bookId === null) {
+        nextRootOrder = [...rootOrder, id];
+      } else {
+        nextBooks = books.map((b) =>
+          b.id === bookId
+            ? { ...b, order: [...(b.order ?? []), id] }
+            : b
+        );
+      }
+
+      persistAll(nextBookmarks, nextBooks, nextRootOrder);
     }
-
-    persistAll(nextBookmarks, nextBooks, nextRootOrder);
   }
 
   /**
@@ -712,7 +758,7 @@ export function useBookmarks() {
         id: bookmark.id,
         bookId: bookmark.bookId || null,
         title: bookmark.title,
-        content: bookmark.url,
+        content: bookmark.url || "",
         order: 0, // TODO: implement proper ordering
         pinned: bookmark.pinned ?? false,
         createdAt: new Date(bookmark.createdAt).toISOString(),

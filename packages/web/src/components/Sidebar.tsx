@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Input";
 import BookTree from "./BookTree";
@@ -128,6 +128,167 @@ export default function Sidebar({
   onShareBook
 }: Props) {
   const [showSearchHelp, setShowSearchHelp] = useState(false);
+  const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
+  const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Load recent searches from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('emperor_recent_searches');
+    if (saved) {
+      try {
+        setRecentSearches(JSON.parse(saved));
+      } catch (e) {
+        // Ignore invalid data
+      }
+    }
+  }, []);
+
+  // Save recent searches to localStorage
+  const saveRecentSearch = (query: string) => {
+    if (!query.trim()) return;
+    const updated = [query, ...recentSearches.filter(s => s !== query)].slice(0, 10);
+    setRecentSearches(updated);
+    localStorage.setItem('emperor_recent_searches', JSON.stringify(updated));
+  };
+
+  // Generate search suggestions
+  const searchSuggestions = useMemo(() => {
+    const query = search.trim();
+    if (!query) return [];
+
+    const suggestions: Array<{ type: string; value: string; label: string; icon?: string }> = [];
+
+    // Recent searches
+    const matchingRecent = recentSearches
+      .filter(rs => rs.toLowerCase().includes(query.toLowerCase()))
+      .slice(0, 3);
+    matchingRecent.forEach(rs => {
+      suggestions.push({
+        type: 'recent',
+        value: rs,
+        label: rs,
+        icon: '🕒'
+      });
+    });
+
+    // Books
+    const matchingBooks = books
+      .filter(book => book.name.toLowerCase().includes(query.toLowerCase()))
+      .slice(0, 3);
+    matchingBooks.forEach(book => {
+      suggestions.push({
+        type: 'book',
+        value: `book:${book.id}`,
+        label: book.name,
+        icon: '📁'
+      });
+    });
+
+    // Tags
+    const matchingTags = tags
+      .filter(tag => tag.toLowerCase().includes(query.toLowerCase()))
+      .slice(0, 3);
+    matchingTags.forEach(tag => {
+      suggestions.push({
+        type: 'tag',
+        value: `tag:${tag}`,
+        label: tag,
+        icon: '#'
+      });
+    });
+
+    // Field suggestions if typing a field prefix
+    if (query.includes(':')) {
+      const [field] = query.split(':');
+      if (field === 'url') {
+        suggestions.push({
+          type: 'field',
+          value: `${field}:`,
+          label: `Search in URLs`,
+          icon: '🔗'
+        });
+      } else if (field === 'title') {
+        suggestions.push({
+          type: 'field',
+          value: `${field}:`,
+          label: `Search in titles`,
+          icon: '📄'
+        });
+      } else if (field === 'tag') {
+        suggestions.push({
+          type: 'field',
+          value: `${field}:`,
+          label: `Search by tags`,
+          icon: '#'
+        });
+      } else if (field === 'status') {
+        suggestions.push({
+          type: 'field',
+          value: `${field}:`,
+          label: `Search by status`,
+          icon: '📊'
+        });
+      }
+    }
+
+    return suggestions.slice(0, 8); // Limit to 8 suggestions
+  }, [search, books, tags, recentSearches]);
+
+  // Handle keyboard navigation
+  const handleSearchKeyDown = (e: React.KeyboardEvent) => {
+    if (!showSearchSuggestions || searchSuggestions.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedSuggestionIndex(prev =>
+        prev < searchSuggestions.length - 1 ? prev + 1 : prev
+      );
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedSuggestionIndex(prev => prev > -1 ? prev - 1 : -1);
+    } else if (e.key === 'Enter' && selectedSuggestionIndex >= 0) {
+      e.preventDefault();
+      const suggestion = searchSuggestions[selectedSuggestionIndex];
+      if (suggestion) {
+        setSearch(suggestion.value);
+        setShowSearchSuggestions(false);
+        setSelectedSuggestionIndex(-1);
+        if (suggestion.type === 'recent') {
+          // Don't save if it's already a recent search
+        } else {
+          saveRecentSearch(suggestion.value);
+        }
+      }
+    } else if (e.key === 'Escape') {
+      setShowSearchSuggestions(false);
+      setSelectedSuggestionIndex(-1);
+    }
+  };
+
+  // Handle search input changes
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setSearch(value);
+    setShowSearchSuggestions(value.trim().length > 0);
+    setSelectedSuggestionIndex(-1);
+
+    // Hide help when typing
+    if (showSearchHelp) {
+      setShowSearchHelp(false);
+    }
+  };
+
+  // Handle suggestion click
+  const handleSuggestionClick = (suggestion: any) => {
+    setSearch(suggestion.value);
+    setShowSearchSuggestions(false);
+    setSelectedSuggestionIndex(-1);
+    if (suggestion.type !== 'recent') {
+      saveRecentSearch(suggestion.value);
+    }
+  };
 
   /**
    * toggleTag
@@ -182,8 +343,10 @@ export default function Sidebar({
 
         <div className="relative">
           <Input
+            ref={searchInputRef}
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={handleSearchChange}
+            onKeyDown={handleSearchKeyDown}
             placeholder="Search pages… (try 'url:github' or 'tag:javascript')"
           />
           <button
@@ -194,6 +357,25 @@ export default function Sidebar({
             ?
           </button>
 
+          {/* Search Suggestions Dropdown */}
+          {showSearchSuggestions && searchSuggestions.length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-emperor-surface border border-emperor-border rounded-md shadow-lg z-20 max-h-64 overflow-y-auto">
+              {searchSuggestions.map((suggestion, index) => (
+                <button
+                  key={`${suggestion.type}-${suggestion.value}`}
+                  onClick={() => handleSuggestionClick(suggestion)}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-emperor-surfaceStrong flex items-center gap-2 ${
+                    index === selectedSuggestionIndex ? 'bg-emperor-accent/10 text-emperor-accent' : ''
+                  }`}
+                >
+                  <span>{suggestion.icon}</span>
+                  <span className="flex-1 truncate">{suggestion.label}</span>
+                  <span className="text-xs text-emperor-muted capitalize">{suggestion.type}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           {showSearchHelp && (
             <div className="absolute top-full left-0 right-0 mt-1 bg-emperor-surface border border-emperor-border rounded-md p-3 text-xs z-10 shadow-lg">
               <div className="font-semibold mb-2">Advanced Search</div>
@@ -203,6 +385,7 @@ export default function Sidebar({
                 <div><code>title:react</code> - Search in titles</div>
                 <div><code>tag:javascript</code> - Search by tags</div>
                 <div><code>status:favorite</code> - Search by status</div>
+                <div><code>-tutorial</code> - Exclude words</div>
                 <div><code>content:blog</code> - Search in descriptions</div>
                 <div><code>notes:important</code> - Search in personal notes</div>
               </div>

@@ -319,6 +319,28 @@ export default function BookmarkCard({
                   </button>
                 </div>
 
+                {/* Extracted content preview */}
+                {b.extractedText && (
+                  <div className="text-sm text-emperor-muted mt-2 p-2 bg-emperor-surface rounded border-l-2 border-emperor-accent/30">
+                    {b.extractedText}
+                  </div>
+                )}
+
+                {/* Screenshot thumbnail */}
+                {b.screenshotUrl && (
+                  <div className="mt-2">
+                    <img
+                      src={b.screenshotUrl}
+                      alt="Page preview"
+                      className="w-full h-24 object-cover rounded border border-emperor-border opacity-70 hover:opacity-100 transition"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        window.open(b.url, '_blank');
+                      }}
+                    />
+                  </div>
+                )}
+
                 {book && (
                   <div className="text-xs text-emperor-muted mt-1">
                     In{" "}
@@ -399,6 +421,33 @@ export default function BookmarkCard({
               }}
             >
               Retag
+            </Button>
+
+            <Button
+              size="sm"
+              variant="subtle"
+              onClick={(e) => {
+                e.stopPropagation();
+                // Share bookmark
+                const shareData = {
+                  title: b.title,
+                  text: b.description || b.title,
+                  url: b.url
+                };
+                if ((navigator as any).share) {
+                  (navigator as any).share(shareData).catch(() => {
+                    // Fallback: copy to clipboard
+                    navigator.clipboard.writeText(`${b.title}\n${b.url}`);
+                    alert('Bookmark copied to clipboard!');
+                  });
+                } else {
+                  // Fallback: copy to clipboard
+                  navigator.clipboard.writeText(`${b.title}\n${b.url}`);
+                  alert('Bookmark copied to clipboard!');
+                }
+              }}
+            >
+              Share
             </Button>
 
             <Button

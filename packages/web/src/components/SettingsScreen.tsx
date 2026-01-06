@@ -1,6 +1,10 @@
 import React from "react";
 import type { EmperorTheme, ThemeMode } from "../hooks/useTheme";
+import type { AISettings, AIProvider } from "../hooks/useAISettings";
+import type { AppSettings, SortMethod, SortDirection, SyncFrequency, ConflictResolution, SummaryLength, AnalysisDepth } from "../hooks/useAppSettings";
 import { Button } from "./ui/Button";
+import { Input } from "./ui/Input";
+import { getSortMethodDisplayName, getSortDirectionDisplayName } from "../utils/bookmarkSorter";
 
 /**
  * SettingsScreen.tsx
@@ -26,6 +30,16 @@ type Props = {
   /** Updates the edit mode */
   setEditMode: (mode: "modal" | "inline") => void;
 
+  /** Current AI settings */
+  aiSettings: AISettings;
+  /** Updates the AI settings */
+  setAISettings: (next: AISettings) => void;
+
+  /** Current app settings */
+  appSettings: AppSettings;
+  /** Updates app settings */
+  updateAppSetting: <K extends keyof AppSettings>(key: K, value: AppSettings[K]) => void;
+
   /** Called to close the settings screen and return to the main UI */
   onClose: () => void;
 };
@@ -41,6 +55,10 @@ export default function SettingsScreen({
   setTheme,
   editMode,
   setEditMode,
+  aiSettings,
+  setAISettings,
+  appSettings,
+  updateAppSetting,
   onClose
 }: Props) {
   function handleModeChange(mode: ThemeMode) {
@@ -53,6 +71,18 @@ export default function SettingsScreen({
 
   function handleResetAccent() {
     setTheme({ ...theme, accent: "#fbbf24" });
+  }
+
+  function handleProviderChange(provider: AIProvider) {
+    setAISettings({ ...aiSettings, provider });
+  }
+
+  function handleApiKeyChange(apiKey: string) {
+    setAISettings({ ...aiSettings, apiKey });
+  }
+
+  function handleUseAIToggle() {
+    setAISettings({ ...aiSettings, useAI: !aiSettings.useAI });
   }
 
   return (
@@ -155,6 +185,527 @@ export default function SettingsScreen({
               </button>
             );
           })}
+        </div>
+      </section>
+
+      {/* AI section */}
+      <section>
+        <h2 className="text-lg font-semibold mb-2">AI Features</h2>
+        <p className="text-sm text-emperor-muted mb-4">
+          Configure AI-powered features for smart tagging and content analysis.
+        </p>
+
+        <div className="flex flex-col gap-4">
+          {/* Enable AI toggle */}
+          <div>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={aiSettings.useAI}
+                onChange={handleUseAIToggle}
+                className="w-4 h-4 text-emperor-accent bg-emperor-surface border-emperor-border rounded focus:ring-emperor-accent focus:ring-2"
+              />
+              <span className="text-sm font-medium">Enable AI features</span>
+            </label>
+            <p className="text-xs text-emperor-muted mt-1">
+              Use AI for automatic tagging, content summarization, and analysis.
+            </p>
+          </div>
+
+          {/* AI Provider selection */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">AI Provider</h3>
+            <div className="flex gap-2">
+              {(
+                [
+                  { label: "OpenAI", value: "openai" },
+                  { label: "Anthropic", value: "anthropic" },
+                  { label: "Groq", value: "groq" },
+                  { label: "Local", value: "local" }
+                ] as { label: string; value: AIProvider }[]
+              ).map((option) => {
+                const isActive = aiSettings.provider === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    disabled={!aiSettings.useAI}
+                    className={`text-sm px-3 py-1 rounded-full border ${
+                      isActive
+                        ? "bg-emperor-surfaceStrong border-emperor-accent text-emperor-text"
+                        : "border-emperor-border text-emperor-muted hover:bg-emperor-surface"
+                    } ${!aiSettings.useAI ? "opacity-50 cursor-not-allowed" : ""}`}
+                    onClick={() => handleProviderChange(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* API Key input */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">API Key</h3>
+            <Input
+              type="password"
+              value={aiSettings.apiKey}
+              onChange={(e) => handleApiKeyChange(e.target.value)}
+              disabled={!aiSettings.useAI}
+              placeholder="Enter your API key"
+              className={`w-full ${!aiSettings.useAI ? "opacity-50" : ""}`}
+            />
+            <p className="text-xs text-emperor-muted mt-1">
+              Your API key is stored locally and never sent to our servers.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Sorting & Display section */}
+      <section>
+        <h2 className="text-lg font-semibold mb-2">Sorting & Display</h2>
+        <p className="text-sm text-emperor-muted mb-4">
+          Configure how bookmarks are sorted and displayed.
+        </p>
+
+        <div className="flex flex-col gap-4">
+          {/* Default sort method */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">Default Sort Method</h3>
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  { label: "Manual", value: "manual" },
+                  { label: "Date Added", value: "dateAdded" },
+                  { label: "Date Modified", value: "dateModified" },
+                  { label: "Alphabetical", value: "alphabetical" },
+                  { label: "URL", value: "url" }
+                ] as { label: string; value: SortMethod }[]
+              ).map((option) => {
+                const isActive = appSettings.defaultSortMethod === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    className={`text-sm px-3 py-1 rounded-full border ${
+                      isActive
+                        ? "bg-emperor-surfaceStrong border-emperor-accent text-emperor-text"
+                        : "border-emperor-border text-emperor-muted hover:bg-emperor-surface"
+                    }`}
+                    onClick={() => updateAppSetting('defaultSortMethod', option.value)}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Sort direction */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">Sort Direction</h3>
+            <div className="flex gap-2">
+              {(
+                [
+                  { label: "Ascending", value: "asc" },
+                  { label: "Descending", value: "desc" }
+                ] as { label: string; value: SortDirection }[]
+              ).map((option) => {
+                const isActive = appSettings.defaultSortDirection === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    className={`text-sm px-3 py-1 rounded-full border ${
+                      isActive
+                        ? "bg-emperor-surfaceStrong border-emperor-accent text-emperor-text"
+                        : "border-emperor-border text-emperor-muted hover:bg-emperor-surface"
+                    }`}
+                    onClick={() => updateAppSetting('defaultSortDirection', option.value)}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Display options */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">Display Options</h3>
+            <div className="flex flex-col gap-2">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={appSettings.compactMode}
+                  onChange={(e) => updateAppSetting('compactMode', e.target.checked)}
+                  className="w-4 h-4 text-emperor-accent bg-emperor-surface border-emperor-border rounded focus:ring-emperor-accent focus:ring-2"
+                />
+                <span className="text-sm">Compact mode</span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={appSettings.showThumbnails}
+                  onChange={(e) => updateAppSetting('showThumbnails', e.target.checked)}
+                  className="w-4 h-4 text-emperor-accent bg-emperor-surface border-emperor-border rounded focus:ring-emperor-accent focus:ring-2"
+                />
+                <span className="text-sm">Show thumbnails</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Search Settings section */}
+      <section>
+        <h2 className="text-lg font-semibold mb-2">Search Settings</h2>
+        <p className="text-sm text-emperor-muted mb-4">
+          Configure search behavior and scope.
+        </p>
+
+        <div className="flex flex-col gap-4">
+          {/* Search scope */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">Search In</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={appSettings.searchInTitle}
+                  onChange={(e) => updateAppSetting('searchInTitle', e.target.checked)}
+                  className="w-4 h-4 text-emperor-accent bg-emperor-surface border-emperor-border rounded focus:ring-emperor-accent focus:ring-2"
+                />
+                <span className="text-sm">Title</span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={appSettings.searchInUrl}
+                  onChange={(e) => updateAppSetting('searchInUrl', e.target.checked)}
+                  className="w-4 h-4 text-emperor-accent bg-emperor-surface border-emperor-border rounded focus:ring-emperor-accent focus:ring-2"
+                />
+                <span className="text-sm">URL</span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={appSettings.searchInContent}
+                  onChange={(e) => updateAppSetting('searchInContent', e.target.checked)}
+                  className="w-4 h-4 text-emperor-accent bg-emperor-surface border-emperor-border rounded focus:ring-emperor-accent focus:ring-2"
+                />
+                <span className="text-sm">Content</span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={appSettings.searchInTags}
+                  onChange={(e) => updateAppSetting('searchInTags', e.target.checked)}
+                  className="w-4 h-4 text-emperor-accent bg-emperor-surface border-emperor-border rounded focus:ring-emperor-accent focus:ring-2"
+                />
+                <span className="text-sm">Tags</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Search options */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">Search Options</h3>
+            <div className="flex flex-col gap-2">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={appSettings.fuzzySearch}
+                  onChange={(e) => updateAppSetting('fuzzySearch', e.target.checked)}
+                  className="w-4 h-4 text-emperor-accent bg-emperor-surface border-emperor-border rounded focus:ring-emperor-accent focus:ring-2"
+                />
+                <span className="text-sm">Fuzzy search</span>
+              </label>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={appSettings.autoSuggestions}
+                  onChange={(e) => updateAppSetting('autoSuggestions', e.target.checked)}
+                  className="w-4 h-4 text-emperor-accent bg-emperor-surface border-emperor-border rounded focus:ring-emperor-accent focus:ring-2"
+                />
+                <span className="text-sm">Auto-suggestions</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Sync & Backup section */}
+      <section>
+        <h2 className="text-lg font-semibold mb-2">Sync & Backup</h2>
+        <p className="text-sm text-emperor-muted mb-4">
+          Configure synchronization and data backup preferences.
+        </p>
+
+        <div className="flex flex-col gap-4">
+          {/* Auto sync */}
+          <div>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={appSettings.autoSync}
+                onChange={(e) => updateAppSetting('autoSync', e.target.checked)}
+                className="w-4 h-4 text-emperor-accent bg-emperor-surface border-emperor-border rounded focus:ring-emperor-accent focus:ring-2"
+              />
+              <span className="text-sm font-medium">Enable auto-sync</span>
+            </label>
+            <p className="text-xs text-emperor-muted mt-1">
+              Automatically sync data with the server.
+            </p>
+          </div>
+
+          {/* Sync frequency */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">Sync Frequency</h3>
+            <div className="flex gap-2">
+              {(
+                [
+                  { label: "Manual", value: "manual" },
+                  { label: "Realtime", value: "realtime" },
+                  { label: "Hourly", value: "hourly" },
+                  { label: "Daily", value: "daily" },
+                  { label: "Weekly", value: "weekly" }
+                ] as { label: string; value: SyncFrequency }[]
+              ).map((option) => {
+                const isActive = appSettings.syncFrequency === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    disabled={!appSettings.autoSync}
+                    className={`text-sm px-3 py-1 rounded-full border ${
+                      isActive
+                        ? "bg-emperor-surfaceStrong border-emperor-accent text-emperor-text"
+                        : "border-emperor-border text-emperor-muted hover:bg-emperor-surface"
+                    } ${!appSettings.autoSync ? "opacity-50 cursor-not-allowed" : ""}`}
+                    onClick={() => updateAppSetting('syncFrequency', option.value)}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Conflict resolution */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">Conflict Resolution</h3>
+            <div className="flex gap-2">
+              {(
+                [
+                  { label: "Manual", value: "manual" },
+                  { label: "Local", value: "local" },
+                  { label: "Remote", value: "remote" },
+                  { label: "Newest", value: "newest" }
+                ] as { label: string; value: ConflictResolution }[]
+              ).map((option) => {
+                const isActive = appSettings.conflictResolution === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    className={`text-sm px-3 py-1 rounded-full border ${
+                      isActive
+                        ? "bg-emperor-surfaceStrong border-emperor-accent text-emperor-text"
+                        : "border-emperor-border text-emperor-muted hover:bg-emperor-surface"
+                    }`}
+                    onClick={() => updateAppSetting('conflictResolution', option.value)}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Performance section */}
+      <section>
+        <h2 className="text-lg font-semibold mb-2">Performance</h2>
+        <p className="text-sm text-emperor-muted mb-4">
+          Optimize performance and resource usage.
+        </p>
+
+        <div className="flex flex-col gap-4">
+          {/* Lazy loading */}
+          <div>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={appSettings.lazyLoading}
+                onChange={(e) => updateAppSetting('lazyLoading', e.target.checked)}
+                className="w-4 h-4 text-emperor-accent bg-emperor-surface border-emperor-border rounded focus:ring-emperor-accent focus:ring-2"
+              />
+              <span className="text-sm font-medium">Lazy loading</span>
+            </label>
+            <p className="text-xs text-emperor-muted mt-1">
+              Load content on demand to improve performance.
+            </p>
+          </div>
+
+          {/* Virtual scroll buffer */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">Virtual Scroll Buffer</h3>
+            <input
+              type="range"
+              min="5"
+              max="20"
+              value={appSettings.virtualScrollBuffer}
+              onChange={(e) => updateAppSetting('virtualScrollBuffer', parseInt(e.target.value))}
+              className="w-full h-2 bg-emperor-surface border border-emperor-border rounded-lg appearance-none cursor-pointer"
+            />
+            <div className="flex justify-between text-xs text-emperor-muted mt-1">
+              <span>5</span>
+              <span>{appSettings.virtualScrollBuffer}</span>
+              <span>20</span>
+            </div>
+          </div>
+
+          {/* Cache size */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">Max Cache Size (MB)</h3>
+            <input
+              type="range"
+              min="10"
+              max="500"
+              step="10"
+              value={appSettings.maxCacheSize}
+              onChange={(e) => updateAppSetting('maxCacheSize', parseInt(e.target.value))}
+              className="w-full h-2 bg-emperor-surface border border-emperor-border rounded-lg appearance-none cursor-pointer"
+            />
+            <div className="flex justify-between text-xs text-emperor-muted mt-1">
+              <span>10MB</span>
+              <span>{appSettings.maxCacheSize}MB</span>
+              <span>500MB</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Privacy & Analytics section */}
+      <section>
+        <h2 className="text-lg font-semibold mb-2">Privacy & Analytics</h2>
+        <p className="text-sm text-emperor-muted mb-4">
+          Control data sharing and analytics preferences.
+        </p>
+
+        <div className="flex flex-col gap-4">
+          {/* Analytics */}
+          <div>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={appSettings.enableAnalytics}
+                onChange={(e) => updateAppSetting('enableAnalytics', e.target.checked)}
+                className="w-4 h-4 text-emperor-accent bg-emperor-surface border-emperor-border rounded focus:ring-emperor-accent focus:ring-2"
+              />
+              <span className="text-sm font-medium">Enable usage analytics</span>
+            </label>
+            <p className="text-xs text-emperor-muted mt-1">
+              Help improve Emperor by sharing anonymous usage data.
+            </p>
+          </div>
+
+          {/* Error reporting */}
+          <div>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={appSettings.enableErrorReporting}
+                onChange={(e) => updateAppSetting('enableErrorReporting', e.target.checked)}
+                className="w-4 h-4 text-emperor-accent bg-emperor-surface border-emperor-border rounded focus:ring-emperor-accent focus:ring-2"
+              />
+              <span className="text-sm font-medium">Enable error reporting</span>
+            </label>
+            <p className="text-xs text-emperor-muted mt-1">
+              Automatically report errors to help fix bugs.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* AI Enhancements section */}
+      <section>
+        <h2 className="text-lg font-semibold mb-2">AI Enhancements</h2>
+        <p className="text-sm text-emperor-muted mb-4">
+          Fine-tune AI-powered features.
+        </p>
+
+        <div className="flex flex-col gap-4">
+          {/* Auto tagging */}
+          <div>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={appSettings.autoTagging}
+                onChange={(e) => updateAppSetting('autoTagging', e.target.checked)}
+                className="w-4 h-4 text-emperor-accent bg-emperor-surface border-emperor-border rounded focus:ring-emperor-accent focus:ring-2"
+              />
+              <span className="text-sm font-medium">Auto-tagging</span>
+            </label>
+            <p className="text-xs text-emperor-muted mt-1">
+              Automatically suggest tags for new bookmarks.
+            </p>
+          </div>
+
+          {/* Analysis depth */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">Analysis Depth</h3>
+            <div className="flex gap-2">
+              {(
+                [
+                  { label: "Basic", value: "basic" },
+                  { label: "Detailed", value: "detailed" }
+                ] as { label: string; value: AnalysisDepth }[]
+              ).map((option) => {
+                const isActive = appSettings.analysisDepth === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    className={`text-sm px-3 py-1 rounded-full border ${
+                      isActive
+                        ? "bg-emperor-surfaceStrong border-emperor-accent text-emperor-text"
+                        : "border-emperor-border text-emperor-muted hover:bg-emperor-surface"
+                    }`}
+                    onClick={() => updateAppSetting('analysisDepth', option.value)}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Summary length */}
+          <div>
+            <h3 className="text-sm font-medium mb-2">Summary Length</h3>
+            <div className="flex gap-2">
+              {(
+                [
+                  { label: "Short", value: "short" },
+                  { label: "Medium", value: "medium" },
+                  { label: "Long", value: "long" }
+                ] as { label: string; value: SummaryLength }[]
+              ).map((option) => {
+                const isActive = appSettings.summaryLength === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    className={`text-sm px-3 py-1 rounded-full border ${
+                      isActive
+                        ? "bg-emperor-surfaceStrong border-emperor-accent text-emperor-text"
+                        : "border-emperor-border text-emperor-muted hover:bg-emperor-surface"
+                    }`}
+                    onClick={() => updateAppSetting('summaryLength', option.value)}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </section>
     </div>

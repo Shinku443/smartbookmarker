@@ -31,6 +31,11 @@ export interface Bookmark {
 
   notes?: string; // Personal notes about the bookmark
 
+  // Content extraction fields
+  extractedText?: string;      // Smart extracted text content
+  screenshotUrl?: string;      // Screenshot/thumbnail URL
+  metaDescription?: string;    // Page meta description
+
   source: "manual" | "imported";
 
   rawMetadata?: any;

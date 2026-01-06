@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useCallback } from "react";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import Fuse from "fuse.js";
 
@@ -10,11 +10,13 @@ import type { Book } from "../models/Book";
 // Advanced search utilities
 function parseAdvancedSearch(query: string): {
   terms: string[];
+  excludedTerms: string[];
   fields: { [key: string]: string[] };
   operators: string[];
 } {
   const result = {
     terms: [] as string[],
+    excludedTerms: [] as string[],
     fields: {} as { [key: string]: string[] },
     operators: [] as string[]
   };
@@ -39,12 +41,20 @@ function parseAdvancedSearch(query: string): {
     processedQuery = processedQuery.replace(fieldMatch[0], '');
   }
 
-  // Add quoted terms to general terms
-  result.terms.push(...quotedTerms);
-
-  // Split remaining query into terms
+  // Split remaining query into terms and separate exclusions
   const remainingTerms = processedQuery.trim().split(/\s+/).filter(term => term.length > 0);
-  result.terms.push(...remainingTerms);
+
+  remainingTerms.forEach(term => {
+    if (term.startsWith('-')) {
+      // Remove the - prefix and add to exclusions
+      result.excludedTerms.push(term.slice(1));
+    } else {
+      result.terms.push(term);
+    }
+  });
+
+  // Add quoted terms to general terms (quoted terms can't be excluded)
+  result.terms.push(...quotedTerms);
 
   return result;
 }
@@ -55,6 +65,22 @@ function advancedSearch(bookmarks: RichBookmark[], query: string): RichBookmark[
   const parsed = parseAdvancedSearch(query.toLowerCase());
 
   return bookmarks.filter(bookmark => {
+    const searchableText = [
+      bookmark.title,
+      bookmark.url,
+      bookmark.description,
+      bookmark.tags?.map(t => t.label).join(' '),
+      bookmark.notes
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    // Check excluded terms first - if any excluded term is found, reject this bookmark
+    if (parsed.excludedTerms.length > 0) {
+      const containsExcludedTerm = parsed.excludedTerms.some(excludedTerm =>
+        searchableText.includes(excludedTerm.toLowerCase())
+      );
+      if (containsExcludedTerm) return false;
+    }
+
     // Check field-specific searches
     for (const [field, values] of Object.entries(parsed.fields)) {
       const fieldValue = getFieldValue(bookmark, field)?.toLowerCase();
@@ -68,14 +94,6 @@ function advancedSearch(bookmarks: RichBookmark[], query: string): RichBookmark[
 
     // Check general terms
     if (parsed.terms.length > 0) {
-      const searchableText = [
-        bookmark.title,
-        bookmark.url,
-        bookmark.description,
-        bookmark.tags?.map(t => t.label).join(' '),
-        bookmark.notes
-      ].filter(Boolean).join(' ').toLowerCase();
-
       const matchesAllTerms = parsed.terms.every(term =>
         searchableText.includes(term.toLowerCase())
       );
@@ -359,6 +377,56 @@ export default function BookmarkList({
         books={books}
         onMoveSelectedToBook={moveSelectedToBook}
       />
+
+      {/* Bulk Status Change Toolbar */}
+      {selectedIds.length > 1 && (
+        <div className="mb-4 p-3 bg-emperor-surfaceStrong border border-emperor-border rounded-lg">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium">
+              {selectedIds.length} bookmarks selected
+            </span>
+            <div className="flex gap-2">
+              <span className="text-xs text-emperor-muted">Change status:</span>
+              {[
+                { key: 'active', label: 'Active', emoji: '📄' },
+                { key: 'favorite', label: 'Favorite', emoji: '⭐' },
+                { key: 'read_later', label: 'Read Later', emoji: '📖' },
+                { key: 'archive', label: 'Archive', emoji: '📦' },
+                { key: 'review', label: 'Review', emoji: '🔍' },
+                { key: 'broken', label: 'Broken', emoji: '❌' }
+              ].map((status) => (
+                <button
+                  key={status.key}
+                  onClick={() => {
+                    // Bulk update status for all selected bookmarks
+                    selectedIds.forEach(id => {
+                      const bookmark = bookmarks.find(b => b.id === id);
+                      if (bookmark) {
+                        onSaveInline({
+                          ...bookmark,
+                          status: status.key === 'active' ? undefined : status.key as any,
+                          updatedAt: Date.now()
+                        });
+                      }
+                    });
+                    setSelectedIds([]); // Clear selection after bulk operation
+                  }}
+                  className="px-2 py-1 text-xs bg-emperor-surface border border-emperor-border rounded hover:bg-emperor-surfaceStrong transition"
+                  title={`Set status to ${status.label}`}
+                >
+                  {status.emoji} {status.label}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setSelectedIds([])}
+              className="ml-auto text-xs text-emperor-muted hover:text-emperor-text"
+            >
+              Clear selection
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Sortable context for main bookmark list */}
       <SortableContext items={ids} strategy={verticalListSortingStrategy}>
