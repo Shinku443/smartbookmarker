@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useState } from "react";
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Input";
 import BookTree from "./BookTree";
+import ImportExportModal from "./modals/ImportExportModal";
 import type { Book } from "../models/Book";
 import type { RichBookmark } from "../models/RichBookmark";
 
@@ -117,6 +118,8 @@ export default function Sidebar({
   onOpenAllBookmarks,
   onShareBook
 }: Props) {
+  const [showImportExport, setShowImportExport] = useState(false);
+
   /**
    * toggleTag
    * ---------
@@ -129,6 +132,31 @@ export default function Sidebar({
         ? activeTags.filter((t) => t !== tag)
         : [...activeTags, tag]
     );
+  }
+
+  /**
+   * handleImport
+   * ------------
+   * Handles importing bookmarks from the ImportExportModal
+   */
+  async function handleImport(importedBookmarks: RichBookmark[]) {
+    // Add each imported bookmark using the existing addBookmark logic
+    for (const bookmark of importedBookmarks) {
+      try {
+        // This will trigger the import logic in useBookmarks
+        // We need to convert RichBookmark back to the expected format
+        await onImport({
+          target: {
+            files: [new File([JSON.stringify({
+              bookmarks: [bookmark],
+              books: []
+            })], 'import.json')]
+          }
+        });
+      } catch (error) {
+        console.error('Failed to import bookmark:', error);
+      }
+    }
   }
 
   return (
@@ -218,16 +246,9 @@ export default function Sidebar({
             Import / Export
           </h3>
 
-          <div className="flex flex-col gap-2">
-            <label className="text-sm">
-              <span className="mr-2">Import HTML</span>
-              <input type="file" accept=".html" onChange={onImport} />
-            </label>
-
-            <Button size="sm" variant="subtle" onClick={onExport}>
-              Export JSON
-            </Button>
-          </div>
+          <Button size="sm" variant="subtle" onClick={() => setShowImportExport(true)}>
+            Import / Export Data
+          </Button>
         </div>
       </div>
 
@@ -239,6 +260,15 @@ export default function Sidebar({
           Settings
         </Button>
       </div>
+
+      {/* Import/Export Modal */}
+      <ImportExportModal
+        isOpen={showImportExport}
+        onClose={() => setShowImportExport(false)}
+        onImport={handleImport}
+        bookmarks={bookmarks}
+        books={books}
+      />
     </div>
   );
 }
