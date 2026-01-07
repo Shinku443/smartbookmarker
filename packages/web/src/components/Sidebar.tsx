@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import { Button } from "./ui/Button";
 import { Input } from "./ui/Input";
 import BookTree from "./BookTree";
+import ImportExportModal from "./modals/ImportExportModal";
 import type { Book } from "../models/Book";
 import type { RichBookmark } from "../models/RichBookmark";
 
@@ -11,22 +12,14 @@ import type { RichBookmark } from "../models/RichBookmark";
  * The Sidebar component serves as the primary navigation and control panel
  * for the Emperor Library application. It provides:
  *
- *   - Search functionality for filtering bookmarks
+ *   - Advanced search functionality with suggestions and help
  *   - Book (group) navigation and selection
  *   - Multi‑tag filtering (OR logic)
+ *   - Status filtering (favorite, archive, read_later, etc.)
  *   - Import/Export tools for data management
  *   - Access to settings and the Book Manager modal
- *
- * The sidebar is intentionally stateless: all state is managed by App.tsx.
- * This keeps the sidebar focused on rendering and user interaction only.
  */
 
-/**
- * Props Interface
- * ---------------
- * Defines the properties required by the Sidebar component.
- * These props connect the sidebar to the application's state and event handlers.
- */
 type Props = {
   /** Opens the "Add Page" modal */
   onAdd: () => void;
@@ -87,18 +80,6 @@ type Props = {
   onShareBook?: (bookId: string) => void;
 };
 
-/**
- * Sidebar Component
- * -----------------
- * Renders the sidebar UI with:
- *   - Search bar
- *   - Book navigation
- *   - Tag filters (multi‑select)
- *   - Import/Export tools
- *   - Settings access
- *
- * The component is fully controlled by props and contains no internal state.
- */
 export default function Sidebar({
   onAdd,
   search,
@@ -127,11 +108,15 @@ export default function Sidebar({
   onOpenAllBookmarks,
   onShareBook
 }: Props) {
+  // Search functionality state
   const [showSearchHelp, setShowSearchHelp] = useState(false);
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Import/Export modal state
+  const [showImportExport, setShowImportExport] = useState(false);
 
   // Load recent searches from localStorage
   useEffect(() => {
@@ -328,6 +313,31 @@ export default function Sidebar({
     { key: "broken", label: "❌ Broken", emoji: "❌" }
   ];
 
+  /**
+   * handleImport
+   * ------------
+   * Handles importing bookmarks from the ImportExportModal
+   */
+  async function handleImport(importedBookmarks: RichBookmark[]) {
+    // Add each imported bookmark using the existing addBookmark logic
+    for (const bookmark of importedBookmarks) {
+      try {
+        // This will trigger the import logic in useBookmarks
+        // We need to convert RichBookmark back to the expected format
+        await onImport({
+          target: {
+            files: [new File([JSON.stringify({
+              bookmarks: [bookmark],
+              books: []
+            })], 'import.json')]
+          }
+        });
+      } catch (error) {
+        console.error('Failed to import bookmark:', error);
+      }
+    }
+  }
+
   return (
     <div className="h-full flex flex-col bg-emperor-sidebar border-r border-emperor-border">
       {/* ------------------------------------------------------------------ */}
@@ -487,16 +497,9 @@ export default function Sidebar({
             Import / Export
           </h3>
 
-          <div className="flex flex-col gap-2">
-            <label className="text-sm">
-              <span className="mr-2">Import HTML</span>
-              <input type="file" accept=".html" onChange={onImport} />
-            </label>
-
-            <Button size="sm" variant="subtle" onClick={onExport}>
-              Export JSON
-            </Button>
-          </div>
+          <Button size="sm" variant="subtle" onClick={() => setShowImportExport(true)}>
+            Import / Export Data
+          </Button>
         </div>
       </div>
 
@@ -508,6 +511,16 @@ export default function Sidebar({
           Settings
         </Button>
       </div>
+
+      {/* Import/Export Modal */}
+      <ImportExportModal
+        isOpen={showImportExport}
+        onClose={() => setShowImportExport(false)}
+        onImport={handleImport}
+        bookmarks={bookmarks}
+        books={books}
+      />
+
     </div>
   );
 }
