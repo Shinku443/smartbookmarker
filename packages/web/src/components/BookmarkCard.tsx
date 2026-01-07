@@ -342,11 +342,13 @@ export default function BookmarkCard({
                   </button>
                 </div>
 
-<<<<<<< HEAD
+                {/* Description (legacy) */}
                 {b.description && (
                   <div className="text-sm text-emperor-muted mt-1 italic">
                     {b.description}
-=======
+                  </div>
+                )}
+
                 {/* Extracted content preview */}
                 {b.extractedText && (
                   <div className="text-sm text-emperor-muted mt-2 p-2 bg-emperor-surface rounded border-l-2 border-emperor-accent/30">
@@ -366,7 +368,6 @@ export default function BookmarkCard({
                         window.open(b.url, '_blank');
                       }}
                     />
->>>>>>> origin/development
                   </div>
                 )}
 
@@ -405,22 +406,6 @@ export default function BookmarkCard({
               )}
             </button>
 
-<<<<<<< HEAD
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleReadLater(b.id);
-              }}
-              className="hover:scale-110 transition"
-              title={b.readLater ? "Remove from Read Later" : "Add to Read Later"}
-            >
-              <ClockIcon
-                className={`w-5 h-5 ${
-                  b.readLater ? "text-orange-400" : "text-emperor-muted"
-                }`}
-              />
-            </button>
-=======
             {/* Status Selector */}
             <div className="relative">
               <button
@@ -456,7 +441,6 @@ export default function BookmarkCard({
                 </div>
               )}
             </div>
->>>>>>> origin/development
 
             <Button
               size="sm"
