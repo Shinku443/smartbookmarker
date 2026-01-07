@@ -20,8 +20,13 @@ import {
 } from "../api/books";
 import {
   createPage,
+  createPageWithUrl,
   deletePage,
   updatePage,
+  updatePageEnhanced,
+  extractPageContent,
+  updatePageStatus,
+  updatePageNotes,
   fetchPages,
 } from "../api/pages";
 import { SyncClient } from "../sync/syncClient";
@@ -85,10 +90,35 @@ type State = {
     title: string;
     content?: string | null;
   }) => Promise<void>;
+  createBookmarkWithUrl: (input: {
+    bookId: string;
+    title: string;
+    url: string;
+    status?: string;
+    notes?: string;
+  }) => Promise<void>;
   updateBookmark: (
     id: string,
     input: Partial<{ title: string; content: string | null }>
   ) => Promise<void>;
+  updateBookmarkEnhanced: (
+    id: string,
+    input: Partial<{
+      title: string;
+      content: string | null;
+      status: string;
+      notes: string;
+      description: string;
+      faviconUrl: string;
+      thumbnailUrl: string;
+      extractedText: string;
+      screenshotUrl: string;
+      metaDescription: string;
+    }>
+  ) => Promise<void>;
+  extractBookmarkContent: (id: string, url: string) => Promise<void>;
+  updateBookmarkStatus: (id: string, status: string) => Promise<void>;
+  updateBookmarkNotes: (id: string, notes: string) => Promise<void>;
   deleteBookmark: (id: string) => Promise<void>;
   reorderBookmark: (
     id: string,
@@ -433,6 +463,16 @@ export const useBookmarksStore = create<State>((set, get) => ({
           bookId: input.bookId,
           title: input.title,
           content: input.content ?? null,
+          description: null,
+          faviconUrl: null,
+          thumbnailUrl: null,
+          extractedText: null,
+          screenshotUrl: null,
+          metaDescription: null,
+          status: null,
+          notes: null,
+          source: "manual",
+          rawMetadata: null,
           order: now,
           pinned: false,
           createdAt: new Date().toISOString(),
@@ -559,6 +599,148 @@ export const useBookmarksStore = create<State>((set, get) => ({
 
     try {
       await updatePage(id, { pinned: nextPinned });
+      set({
+        pages: get().pages.map((p) =>
+          p.id === id ? { ...p, hasLocalChanges: false } : p
+        ),
+      });
+    } catch (err) {
+      set({ pages: prev });
+      throw err;
+    }
+  },
+
+  // ENHANCED METHODS
+
+  async createBookmarkWithUrl(input) {
+    const tempId = `local-page-${nanoid()}`;
+    const now = Date.now();
+
+    set((state) => ({
+      pages: [
+        ...state.pages,
+        {
+          id: tempId,
+          bookId: input.bookId,
+          title: input.title,
+          content: null,
+          description: null,
+          faviconUrl: null,
+          thumbnailUrl: null,
+          extractedText: null,
+          screenshotUrl: null,
+          metaDescription: null,
+          status: input.status || null,
+          notes: input.notes || null,
+          source: "imported",
+          rawMetadata: null,
+          order: now,
+          pinned: false,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          isLocalOnly: true,
+          hasLocalChanges: true,
+        },
+      ].sort((a, b) => a.order - b.order),
+    }));
+
+    try {
+      const saved = await createPageWithUrl(input);
+      set((state) => ({
+        pages: state.pages
+          .map((p) =>
+            p.id === tempId
+              ? {
+                  ...p,
+                  ...saved,
+                  isLocalOnly: false,
+                  hasLocalChanges: false,
+                }
+              : p
+          )
+          .sort((a, b) => a.order - b.order),
+      }));
+    } catch (err) {
+      set((state) => ({
+        pages: state.pages.filter((p) => p.id !== tempId),
+      }));
+      throw err;
+    }
+  },
+
+  async updateBookmarkEnhanced(id, input) {
+    const prev = get().pages;
+    set({
+      pages: prev.map((p) =>
+        p.id === id ? { ...p, ...input, hasLocalChanges: true } : p
+      ),
+    });
+
+    try {
+      await updatePageEnhanced(id, input);
+      set({
+        pages: get().pages.map((p) =>
+          p.id === id ? { ...p, hasLocalChanges: false } : p
+        ),
+      });
+    } catch (err) {
+      set({ pages: prev });
+      throw err;
+    }
+  },
+
+  async extractBookmarkContent(id, url) {
+    const prev = get().pages;
+    set({
+      pages: prev.map((p) =>
+        p.id === id ? { ...p, hasLocalChanges: true } : p
+      ),
+    });
+
+    try {
+      const updated = await extractPageContent(id, url);
+      set({
+        pages: get().pages.map((p) =>
+          p.id === id ? { ...updated, hasLocalChanges: false } : p
+        ),
+      });
+    } catch (err) {
+      set({ pages: prev });
+      throw err;
+    }
+  },
+
+  async updateBookmarkStatus(id, status) {
+    const prev = get().pages;
+    set({
+      pages: prev.map((p) =>
+        p.id === id ? { ...p, status, hasLocalChanges: true } : p
+      ),
+    });
+
+    try {
+      await updatePageStatus(id, status);
+      set({
+        pages: get().pages.map((p) =>
+          p.id === id ? { ...p, hasLocalChanges: false } : p
+        ),
+      });
+    } catch (err) {
+      set({ pages: prev });
+      throw err;
+    }
+  },
+
+  async updateBookmarkNotes(id, notes) {
+    const prev = get().pages;
+    set({
+      pages: prev.map((p) =>
+        p.id === id ? { ...p, notes, hasLocalChanges: true } : p
+      ),
+    });
+
+    try {
+      await updatePageNotes(id, notes);
       set({
         pages: get().pages.map((p) =>
           p.id === id ? { ...p, hasLocalChanges: false } : p
