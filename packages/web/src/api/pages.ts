@@ -1,10 +1,13 @@
-// apps/web/src/api/pages.ts
-
 export type PageDto = {
   id: string;
-  bookId: string;
+  bookId: string | null;
   title: string;
   content: string | null;
+  url: string | null;
+  extractedText: string | null;
+  screenshotUrl: string | null;
+  metaDescription: string | null;
+  faviconUrl: string | null;
   order: number;
   pinned: boolean;
   createdAt: string;
@@ -27,9 +30,10 @@ export async function fetchPages(): Promise<PageDto[]> {
 }
 
 export async function createPage(input: {
-  bookId: string;
+  bookId?: string | null;
   title: string;
   content?: string | null;
+  url?: string;
 }): Promise<PageDto> {
   const res = await fetch(BASE, {
     method: "POST",

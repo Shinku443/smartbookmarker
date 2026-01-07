@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import {
   DndContext,
   closestCenter,
@@ -29,6 +29,9 @@ import type { Book } from "./models/Book";
 import { SyncDebugPanel } from "./components/SyncDebugPanel";
 
 import { useTheme } from "./hooks/useTheme";
+import { useAISettings } from "./hooks/useAISettings";
+import { useAppSettings } from "./hooks/useAppSettings";
+import { sortBookmarks } from "./utils/bookmarkSorter";
 
 /**
  * App.tsx
@@ -136,11 +139,26 @@ export default function App() {
   const { theme, setTheme } = useTheme();
 
   /**
+   * AI settings system
+   * ------------------
+   * Controls AI provider selection and API keys.
+   */
+  const { settings: aiSettings, setSettings: setAISettings } = useAISettings();
+
+  /**
+   * App settings system
+   * -------------------
+   * Comprehensive application preferences.
+   */
+  const { settings: appSettings, updateSetting: updateAppSetting } = useAppSettings();
+
+  /**
    * UI state
    * --------
    */
   const [search, setSearch] = useState("");
   const [activeTags, setActiveTags] = useState<string[]>([]);
+  const [activeStatuses, setActiveStatuses] = useState<string[]>([]);
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showSettings, setShowSettings] = useState(false);
@@ -153,6 +171,7 @@ export default function App() {
 
   const [isDraggingBookmark, setIsDraggingBookmark] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [keyboardNavigationIndex, setKeyboardNavigationIndex] = useState<number>(-1);
 
   /**
    * DnD Sensors
@@ -184,6 +203,21 @@ export default function App() {
   }, [bookmarks]);
 
   /**
+   * statuses
+   * --------
+   * Collect all unique status values across pages.
+   */
+  const statuses = useMemo(() => {
+    const set = new Set<string>();
+    for (const b of bookmarks) {
+      if (b.status) {
+        set.add(b.status);
+      }
+    }
+    return [...set];
+  }, [bookmarks]);
+
+  /**
    * handleActivateBook
    * ------------------
    * Clicking a book label in BookmarkCard should:
@@ -200,44 +234,54 @@ export default function App() {
    * --------------
    * Ordered, unfiltered source of truth for the main list.
    * Book scoping happens later in BookmarkList.
+   * Uses configurable sorting from app settings.
    */
   const sortedByOrder = useMemo(() => {
     const idToBookmark = new Map(bookmarks.map((b) => [b.id, b]));
-    const result: RichBookmark[] = [];
+    let result: RichBookmark[] = [];
 
     if (activeBookId) {
       const book = books.find((b) => b.id === activeBookId);
       const order = Array.isArray(book?.order) ? book.order : [];
 
+      // Get all bookmarks for this book
       for (const id of order) {
         const b = idToBookmark.get(id);
         if (b) result.push(b);
       }
-
       for (const b of bookmarks) {
         if (b.bookId === activeBookId && !order.includes(b.id)) {
           result.push(b);
         }
       }
+
+      // Apply configurable sorting if not manual
+      if (appSettings.defaultSortMethod !== 'manual') {
+        result = sortBookmarks(result, appSettings.defaultSortMethod, appSettings.defaultSortDirection);
+      }
     } else {
+      // For "All Pages", collect all bookmarks
       for (const id of rootOrder) {
         const b = idToBookmark.get(id);
         if (b && !b.bookId) result.push(b);
       }
-
       for (const b of bookmarks) {
         if (!b.bookId && !rootOrder.includes(b.id)) {
           result.push(b);
         }
       }
-
       for (const b of bookmarks) {
         if (b.bookId) result.push(b);
+      }
+
+      // Apply configurable sorting
+      if (appSettings.defaultSortMethod !== 'manual') {
+        result = sortBookmarks(result, appSettings.defaultSortMethod, appSettings.defaultSortDirection);
       }
     }
 
     return result;
-  }, [bookmarks, books, rootOrder, activeBookId]);
+  }, [bookmarks, books, rootOrder, activeBookId, appSettings.defaultSortMethod, appSettings.defaultSortDirection]);
 
   /**
    * sortedPinned
@@ -499,6 +543,100 @@ export default function App() {
    */
   const canReorderMain = activeBookId !== null;
 
+  /**
+   * Keyboard Shortcuts
+   * ------------------
+   * j/k navigation, d=delete, f=favorite, etc.
+   */
+  const handleKeyboardShortcuts = useCallback((event: KeyboardEvent) => {
+    // Don't trigger shortcuts when typing in inputs
+    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+      return;
+    }
+
+    // Don't trigger shortcuts when modals are open
+    if (showAddModal || showBookManager || editingBookmark || showSettings) {
+      return;
+    }
+
+    const bookmarksInView = sortedByOrder; // Current visible bookmarks
+
+    switch (event.key.toLowerCase()) {
+      case 'j':
+        // Navigate down
+        event.preventDefault();
+        if (bookmarksInView.length > 0) {
+          const newIndex = keyboardNavigationIndex < bookmarksInView.length - 1
+            ? keyboardNavigationIndex + 1
+            : 0;
+          setKeyboardNavigationIndex(newIndex);
+          setSelectedIds([bookmarksInView[newIndex].id]);
+        }
+        break;
+
+      case 'k':
+        // Navigate up
+        event.preventDefault();
+        if (bookmarksInView.length > 0) {
+          const newIndex = keyboardNavigationIndex > 0
+            ? keyboardNavigationIndex - 1
+            : bookmarksInView.length - 1;
+          setKeyboardNavigationIndex(newIndex);
+          setSelectedIds([bookmarksInView[newIndex].id]);
+        }
+        break;
+
+      case 'd':
+        // Delete selected bookmark
+        event.preventDefault();
+        if (selectedIds.length === 1) {
+          const bookmark = bookmarks.find(b => b.id === selectedIds[0]);
+          if (bookmark && confirm(`Delete "${bookmark.title}"?`)) {
+            deleteBookmark(selectedIds[0]);
+            setSelectedIds([]);
+            setKeyboardNavigationIndex(-1);
+          }
+        }
+        break;
+
+      case 'f':
+        // Toggle favorite (pin) status
+        event.preventDefault();
+        if (selectedIds.length === 1) {
+          togglePin(selectedIds[0]);
+        }
+        break;
+
+      case 'enter':
+        // Open selected bookmark
+        event.preventDefault();
+        if (selectedIds.length === 1) {
+          const bookmark = bookmarks.find(b => b.id === selectedIds[0]);
+          if (bookmark?.url) {
+            window.open(bookmark.url, '_blank');
+          }
+        }
+        break;
+
+      case 'escape':
+        // Clear selection
+        event.preventDefault();
+        setSelectedIds([]);
+        setKeyboardNavigationIndex(-1);
+        break;
+    }
+  }, [
+    selectedIds, bookmarks, keyboardNavigationIndex, sortedByOrder,
+    deleteBookmark, togglePin, showAddModal, showBookManager,
+    editingBookmark, showSettings
+  ]);
+
+  // Set up keyboard event listeners
+  useEffect(() => {
+    document.addEventListener('keydown', handleKeyboardShortcuts);
+    return () => document.removeEventListener('keydown', handleKeyboardShortcuts);
+  }, [handleKeyboardShortcuts]);
+
   return (
     <DndContext
       sensors={sensors}
@@ -546,6 +684,9 @@ export default function App() {
             tags={tags}
             activeTags={activeTags}
             setActiveTags={setActiveTags}
+            statuses={statuses}
+            activeStatuses={activeStatuses}
+            setActiveStatuses={setActiveStatuses}
             books={books}
             bookmarks={bookmarks}
             activeBookId={activeBookId}
@@ -572,6 +713,10 @@ export default function App() {
             setTheme={setTheme}
             editMode={editMode}
             setEditMode={setEditMode}
+            aiSettings={aiSettings}
+            setAISettings={setAISettings}
+            appSettings={appSettings}
+            updateAppSetting={updateAppSetting}
             onClose={() => setShowSettings(false)}
           />
         ) : (
@@ -607,6 +752,7 @@ export default function App() {
               editMode={editMode}
               search={search}
               activeTags={activeTags}
+              activeStatuses={activeStatuses}
               activeBookId={activeBookId}
               canReorder={canReorderMain}
               activeDragId={activeId}
