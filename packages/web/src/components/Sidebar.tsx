@@ -16,6 +16,7 @@ import type { RichBookmark } from "../models/RichBookmark";
  *   - Book (group) navigation and selection
  *   - Multi‑tag filtering (OR logic)
  *   - Status filtering (favorite, archive, read_later, etc.)
+ *   - Content type filtering (articles, videos, images, etc.)
  *   - Import/Export tools for data management
  *   - Access to settings and the Book Manager modal
  */
@@ -124,7 +125,7 @@ export default function Sidebar({
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRefLocal = useRef<HTMLInputElement>(null);
 
   // Import/Export modal state
   const [showImportExport, setShowImportExport] = useState(false);
@@ -325,6 +326,35 @@ export default function Sidebar({
   ];
 
   /**
+   * Content type options for filtering
+   */
+  const contentTypeOptions = [
+    { label: "Articles", search: "article OR blog OR news OR post" },
+    { label: "Videos", search: "youtube.com OR vimeo.com OR video OR watch" },
+    { label: "Images", search: "imgur.com OR flickr.com OR image OR photo OR picture" },
+    { label: "Audio", search: "soundcloud.com OR spotify.com OR podcast OR music OR audio" },
+    { label: "Documents", search: "pdf OR doc OR docx OR ppt OR xls OR drive.google.com" },
+    { label: "Code", search: "github.com OR gitlab.com OR code OR repository OR gist" }
+  ];
+
+  /**
+   * toggleContentType
+   * -----------------
+   * Toggles content type filters by adding/removing search terms
+   */
+  function toggleContentType(contentType: { label: string; search: string }) {
+    const isActive = search.includes(contentType.search);
+    if (isActive) {
+      // Remove the search term
+      setSearch(search.replace(new RegExp(`\\s*${contentType.search}\\s*`, 'gi'), '').trim());
+    } else {
+      // Add the search term
+      const newSearch = search ? `${search} ${contentType.search}` : contentType.search;
+      setSearch(newSearch);
+    }
+  }
+
+  /**
    * handleImport
    * ------------
    * Handles importing bookmarks from the ImportExportModal
@@ -362,40 +392,9 @@ export default function Sidebar({
           </Button>
         </div>
 
-<<<<<<< HEAD
-        <div className="space-y-2">
-          <Input
-            ref={searchInputRef}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search pages…"
-          />
-
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="subtle"
-              onClick={() => setActiveBookId(null)}
-              className={activeBookId === null ? "bg-emperor-surfaceStrong" : ""}
-            >
-              All Pages
-            </Button>
-            <Button
-              size="sm"
-              variant="subtle"
-              onClick={() => {
-                setSortBy(sortBy === "recent" ? "default" : "recent");
-                setActiveBookId(null);
-              }}
-              className={sortBy === "recent" ? "bg-emperor-surfaceStrong" : ""}
-            >
-              Recent
-            </Button>
-          </div>
-=======
         <div className="relative">
           <Input
-            ref={searchInputRef}
+            ref={searchInputRef || searchInputRefLocal}
             value={search}
             onChange={handleSearchChange}
             onKeyDown={handleSearchKeyDown}
@@ -443,7 +442,6 @@ export default function Sidebar({
               </div>
             </div>
           )}
->>>>>>> origin/development
         </div>
       </div>
 
@@ -508,45 +506,6 @@ export default function Sidebar({
           </div>
         </div>
 
-<<<<<<< HEAD
-        {/* Content Types */}
-        <div className="px-4">
-          <h3 className="text-emperor-muted text-xs uppercase tracking-wide mb-2">
-            Content Types
-          </h3>
-
-          <div className="flex flex-wrap gap-2">
-            {[
-              { label: "Articles", search: "article OR blog OR news OR post" },
-              { label: "Videos", search: "youtube.com OR vimeo.com OR video OR watch" },
-              { label: "Images", search: "imgur.com OR flickr.com OR image OR photo OR picture" },
-              { label: "Audio", search: "soundcloud.com OR spotify.com OR podcast OR music OR audio" },
-              { label: "Documents", search: "pdf OR doc OR docx OR ppt OR xls OR drive.google.com" },
-              { label: "Code", search: "github.com OR gitlab.com OR code OR repository OR gist" }
-            ].map((type) => {
-              const isActive = search.includes(type.search);
-              return (
-                <button
-                  key={type.label}
-                  className={`text-xs px-2 py-1 rounded-full border ${
-                    isActive
-                      ? "bg-blue-500/20 border-blue-400 text-blue-300"
-                      : "border-emperor-border hover:bg-emperor-surface"
-                  }`}
-                  onClick={() => {
-                    if (isActive) {
-                      // Remove the search term
-                      setSearch(search.replace(new RegExp(`\\s*${type.search}\\s*`, 'gi'), '').trim());
-                    } else {
-                      // Add the search term
-                      const newSearch = search ? `${search} ${type.search}` : type.search;
-                      setSearch(newSearch);
-                    }
-                  }}
-                  title={`Filter by ${type.label.toLowerCase()}`}
-                >
-                  {type.label}
-=======
         {/* Status */}
         <div className="px-4">
           <h3 className="text-emperor-muted text-xs uppercase tracking-wide mb-2">
@@ -567,7 +526,33 @@ export default function Sidebar({
                   onClick={() => toggleStatus(status.key)}
                 >
                   {status.emoji} {status.key.replace("_", " ")}
->>>>>>> origin/development
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Content Types */}
+        <div className="px-4">
+          <h3 className="text-emperor-muted text-xs uppercase tracking-wide mb-2">
+            Content Types
+          </h3>
+
+          <div className="flex flex-wrap gap-2">
+            {contentTypeOptions.map((type) => {
+              const isActive = search.includes(type.search);
+              return (
+                <button
+                  key={type.label}
+                  className={`text-xs px-2 py-1 rounded-full border ${
+                    isActive
+                      ? "bg-blue-500/20 border-blue-400 text-blue-300"
+                      : "border-emperor-border hover:bg-emperor-surface"
+                  }`}
+                  onClick={() => toggleContentType(type)}
+                  title={`Filter by ${type.label.toLowerCase()}`}
+                >
+                  {type.label}
                 </button>
               );
             })}
