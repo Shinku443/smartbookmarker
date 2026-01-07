@@ -1,0 +1,11 @@
+[install]
+# Force Bun to resolve binaries from the package you're inside
+bin-dir = "node_modules/.bin"
+
+[run]
+# Force Bun to run commands from the current working directory
+cwd = "."
+
+[x-bun]
+# Prevent Bun from hoisting prisma to the root
+disable-workspace-hoist = true

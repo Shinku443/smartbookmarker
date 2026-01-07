@@ -180,6 +180,7 @@ export default function BookmarkCard({
   const [inlineTitle, setInlineTitle] = useState(b.title);
   const [inlineUrl, setInlineUrl] = useState(b.url);
   const [isEditingInline, setIsEditingInline] = useState(false);
+  const [showStatusDropdown, setShowStatusDropdown] = useState(false);
 
   const {
     attributes,
@@ -225,7 +226,27 @@ export default function BookmarkCard({
     navigator.clipboard.writeText(b.url);
   }
 
+  function updateStatus(newStatus: string) {
+    const updatedBookmark = {
+      ...b,
+      status: newStatus === 'active' ? undefined : newStatus as any,
+      updatedAt: Date.now()
+    };
+    onSaveInline(updatedBookmark);
+  }
+
   const book = books.find((bk) => bk.id === b.bookId);
+
+  const statusOptions = [
+    { key: 'active', label: 'Active', emoji: '📄' },
+    { key: 'favorite', label: 'Favorite', emoji: '⭐' },
+    { key: 'read_later', label: 'Read Later', emoji: '📖' },
+    { key: 'archive', label: 'Archive', emoji: '📦' },
+    { key: 'review', label: 'Review', emoji: '🔍' },
+    { key: 'broken', label: 'Broken', emoji: '❌' }
+  ];
+
+  const currentStatus = statusOptions.find(s => s.key === (b.status || 'active'));
 
   return (
    <Card
@@ -321,9 +342,31 @@ export default function BookmarkCard({
                   </button>
                 </div>
 
+<<<<<<< HEAD
                 {b.description && (
                   <div className="text-sm text-emperor-muted mt-1 italic">
                     {b.description}
+=======
+                {/* Extracted content preview */}
+                {b.extractedText && (
+                  <div className="text-sm text-emperor-muted mt-2 p-2 bg-emperor-surface rounded border-l-2 border-emperor-accent/30">
+                    {b.extractedText}
+                  </div>
+                )}
+
+                {/* Screenshot thumbnail */}
+                {b.screenshotUrl && (
+                  <div className="mt-2">
+                    <img
+                      src={b.screenshotUrl}
+                      alt="Page preview"
+                      className="w-full h-24 object-cover rounded border border-emperor-border opacity-70 hover:opacity-100 transition"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        window.open(b.url, '_blank');
+                      }}
+                    />
+>>>>>>> origin/development
                   </div>
                 )}
 
@@ -362,6 +405,7 @@ export default function BookmarkCard({
               )}
             </button>
 
+<<<<<<< HEAD
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -376,6 +420,43 @@ export default function BookmarkCard({
                 }`}
               />
             </button>
+=======
+            {/* Status Selector */}
+            <div className="relative">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowStatusDropdown(!showStatusDropdown);
+                }}
+                className="text-sm px-2 py-1 rounded border border-emperor-border hover:bg-emperor-surface transition flex items-center gap-1"
+                title={`Status: ${currentStatus?.label}`}
+              >
+                <span>{currentStatus?.emoji}</span>
+                <span className="text-xs">▼</span>
+              </button>
+
+              {showStatusDropdown && (
+                <div className="absolute right-0 top-full mt-1 bg-emperor-surface border border-emperor-border rounded-md shadow-lg z-10 min-w-[120px]">
+                  {statusOptions.map((status) => (
+                    <button
+                      key={status.key}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        updateStatus(status.key);
+                        setShowStatusDropdown(false);
+                      }}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-emperor-surfaceStrong flex items-center gap-2 ${
+                        status.key === (b.status || 'active') ? 'bg-emperor-accent/10 text-emperor-accent' : ''
+                      }`}
+                    >
+                      <span>{status.emoji}</span>
+                      <span>{status.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+>>>>>>> origin/development
 
             <Button
               size="sm"
@@ -386,6 +467,33 @@ export default function BookmarkCard({
               }}
             >
               Retag
+            </Button>
+
+            <Button
+              size="sm"
+              variant="subtle"
+              onClick={(e) => {
+                e.stopPropagation();
+                // Share bookmark
+                const shareData = {
+                  title: b.title,
+                  text: b.description || b.title,
+                  url: b.url
+                };
+                if ((navigator as any).share) {
+                  (navigator as any).share(shareData).catch(() => {
+                    // Fallback: copy to clipboard
+                    navigator.clipboard.writeText(`${b.title}\n${b.url}`);
+                    alert('Bookmark copied to clipboard!');
+                  });
+                } else {
+                  // Fallback: copy to clipboard
+                  navigator.clipboard.writeText(`${b.title}\n${b.url}`);
+                  alert('Bookmark copied to clipboard!');
+                }
+              }}
+            >
+              Share
             </Button>
 
             <Button
