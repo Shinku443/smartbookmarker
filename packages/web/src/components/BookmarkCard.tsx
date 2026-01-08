@@ -252,7 +252,17 @@ export default function BookmarkCard({
 
   const book = books.find((bk) => bk.id === b.bookId);
 
-<<<<<<< HEAD
+  const statusOptions = [
+    { key: 'active', label: 'Active', emoji: '📄' },
+    { key: 'favorite', label: 'Favorite', emoji: '⭐' },
+    { key: 'read_later', label: 'Read Later', emoji: '📖' },
+    { key: 'archive', label: 'Archive', emoji: '📦' },
+    { key: 'review', label: 'Review', emoji: '🔍' },
+    { key: 'broken', label: 'Broken', emoji: '❌' }
+  ];
+
+  const currentStatus = statusOptions.find(s => s.key === (b.status || 'active'));
+
   // Common elements based on visibility settings
   const faviconElement = infoVisibility.favicon && b.faviconUrl && (
     <img src={b.faviconUrl} className="w-5 h-5 mt-1 flex-shrink-0" />
@@ -311,69 +321,6 @@ export default function BookmarkCard({
     </div>
   );
 
-  // Action buttons
-  const actionButtons = !isEditingInline && (
-    <div className="flex items-center gap-3">
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onPin(b.id);
-        }}
-        className="hover:scale-110 transition"
-      >
-        {b.pinned ? (
-          <StarSolid className="w-5 h-5 text-yellow-400" />
-        ) : (
-          <StarOutline className="w-5 h-5 text-emperor-muted" />
-        )}
-      </button>
-
-      <Button
-        size="sm"
-        variant="subtle"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRetag(b);
-        }}
-      >
-        Retag
-      </Button>
-
-      <Button
-        size="sm"
-        variant="subtle"
-        onClick={(e) => {
-          e.stopPropagation();
-          startEdit();
-        }}
-      >
-        Edit
-      </Button>
-
-      <Button
-        size="sm"
-        variant="danger"
-        onClick={(e) => {
-          e.stopPropagation();
-          onDelete(b.id);
-        }}
-      >
-        Delete
-      </Button>
-    </div>
-  );
-
-  // Checkbox
-  const checkboxElement = (
-    <input
-      type="checkbox"
-      className="mt-1 flex-shrink-0"
-      checked={selected}
-      onChange={() => onToggleSelected(b.id)}
-      onClick={(e) => e.stopPropagation()}
-    />
-  );
-
   // Base card styling
   const baseCardClass = `
     border transition relative group
@@ -397,7 +344,13 @@ export default function BookmarkCard({
         className={`${baseCardClass} p-3`}
       >
         <div className="flex items-center gap-3">
-          {checkboxElement}
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={selected}
+            onChange={() => onToggleSelected(b.id)}
+            onClick={(e) => e.stopPropagation()}
+          />
           {faviconElement}
           <div className="flex-1 min-w-0">
             {isEditingInline ? (
@@ -444,7 +397,119 @@ export default function BookmarkCard({
                     <div className="mt-2">{tagsElement}</div>
                   )}
                 </div>
-                {actionButtons}
+                {!isEditingInline && (
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onPin(b.id);
+                      }}
+                      className="hover:scale-110 transition"
+                    >
+                      {b.pinned ? (
+                        <StarSolid className="w-5 h-5 text-yellow-400" />
+                      ) : (
+                        <StarOutline className="w-5 h-5 text-emperor-muted" />
+                      )}
+                    </button>
+
+                    {/* Status Selector */}
+                    <div className="relative">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowStatusDropdown(!showStatusDropdown);
+                        }}
+                        className="text-sm px-2 py-1 rounded border border-emperor-border hover:bg-emperor-surface transition flex items-center gap-1"
+                        title={`Status: ${currentStatus?.label}`}
+                      >
+                        <span>{currentStatus?.emoji}</span>
+                        <span className="text-xs">▼</span>
+                      </button>
+
+                      {showStatusDropdown && (
+                        <div className="absolute right-0 top-full mt-1 bg-emperor-surface border border-emperor-border rounded-md shadow-lg z-10 min-w-[120px]">
+                          {statusOptions.map((status) => (
+                            <button
+                              key={status.key}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                updateStatus(status.key);
+                                setShowStatusDropdown(false);
+                              }}
+                              className={`w-full text-left px-3 py-2 text-sm hover:bg-emperor-surfaceStrong flex items-center gap-2 ${
+                                status.key === (b.status || 'active') ? 'bg-emperor-accent/10 text-emperor-accent' : ''
+                              }`}
+                            >
+                              <span>{status.emoji}</span>
+                              <span>{status.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <Button
+                      size="sm"
+                      variant="subtle"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onRetag(b);
+                      }}
+                    >
+                      Retag
+                    </Button>
+
+                    <Button
+                      size="sm"
+                      variant="subtle"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // Share bookmark
+                        const shareData = {
+                          title: b.title,
+                          text: b.description || b.title,
+                          url: b.url
+                        };
+                        if ((navigator as any).share) {
+                          (navigator as any).share(shareData).catch(() => {
+                            // Fallback: copy to clipboard
+                            navigator.clipboard.writeText(`${b.title}\n${b.url}`);
+                            alert('Bookmark copied to clipboard!');
+                          });
+                        } else {
+                          // Fallback: copy to clipboard
+                          navigator.clipboard.writeText(`${b.title}\n${b.url}`);
+                          alert('Bookmark copied to clipboard!');
+                        }
+                      }}
+                    >
+                      Share
+                    </Button>
+
+                    <Button
+                      size="sm"
+                      variant="subtle"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startEdit();
+                      }}
+                    >
+                      Edit
+                    </Button>
+
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDelete(b.id);
+                      }}
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -463,7 +528,13 @@ export default function BookmarkCard({
         className={`${baseCardClass} p-4 h-48 flex flex-col`}
       >
         <div className="flex items-start gap-3 mb-3">
-          {checkboxElement}
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={selected}
+            onChange={() => onToggleSelected(b.id)}
+            onClick={(e) => e.stopPropagation()}
+          />
           <div className="flex-1 min-w-0">
             {faviconElement}
             <a
@@ -478,7 +549,105 @@ export default function BookmarkCard({
             {urlElement}
             {bookElement}
           </div>
-          {actionButtons}
+          {!isEditingInline && (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPin(b.id);
+                }}
+                className="hover:scale-110 transition"
+              >
+                {b.pinned ? (
+                  <StarSolid className="w-5 h-5 text-yellow-400" />
+                ) : (
+                  <StarOutline className="w-5 h-5 text-emperor-muted" />
+                )}
+              </button>
+
+              {/* Status Selector */}
+              <div className="relative">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowStatusDropdown(!showStatusDropdown);
+                  }}
+                  className="text-sm px-2 py-1 rounded border border-emperor-border hover:bg-emperor-surface transition flex items-center gap-1"
+                  title={`Status: ${currentStatus?.label}`}
+                >
+                  <span>{currentStatus?.emoji}</span>
+                  <span className="text-xs">▼</span>
+                </button>
+
+                {showStatusDropdown && (
+                  <div className="absolute right-0 top-full mt-1 bg-emperor-surface border border-emperor-border rounded-md shadow-lg z-10 min-w-[120px]">
+                    {statusOptions.map((status) => (
+                      <button
+                        key={status.key}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          updateStatus(status.key);
+                          setShowStatusDropdown(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-emperor-surfaceStrong flex items-center gap-2 ${
+                          status.key === (b.status || 'active') ? 'bg-emperor-accent/10 text-emperor-accent' : ''
+                        }`}
+                      >
+                        <span>{status.emoji}</span>
+                        <span>{status.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <Button
+                size="sm"
+                variant="subtle"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRetag(b);
+                }}
+              >
+                Retag
+              </Button>
+
+              <Button
+                size="sm"
+                variant="subtle"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Share bookmark
+                  navigator.clipboard.writeText(`${b.title}\n${b.url}`);
+                  alert('Bookmark copied to clipboard!');
+                }}
+              >
+                Share
+              </Button>
+
+              <Button
+                size="sm"
+                variant="subtle"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  startEdit();
+                }}
+              >
+                Edit
+              </Button>
+
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDelete(b.id);
+                }}
+              >
+                Delete
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="flex-1 flex flex-col justify-between">
@@ -494,19 +663,6 @@ export default function BookmarkCard({
   }
 
   // Default card view
-=======
-  const statusOptions = [
-    { key: 'active', label: 'Active', emoji: '📄' },
-    { key: 'favorite', label: 'Favorite', emoji: '⭐' },
-    { key: 'read_later', label: 'Read Later', emoji: '📖' },
-    { key: 'archive', label: 'Archive', emoji: '📦' },
-    { key: 'review', label: 'Review', emoji: '🔍' },
-    { key: 'broken', label: 'Broken', emoji: '❌' }
-  ];
-
-  const currentStatus = statusOptions.find(s => s.key === (b.status || 'active'));
-
->>>>>>> origin/development
   return (
    <Card
   ref={setNodeRef}
@@ -518,9 +674,6 @@ export default function BookmarkCard({
       {/* Top row */}
       <div className="flex justify-between items-start gap-3">
         <div className="flex gap-3 flex-1">
-<<<<<<< HEAD
-          {checkboxElement}
-=======
           <input
             type="checkbox"
             className="mt-1"
@@ -542,7 +695,6 @@ export default function BookmarkCard({
               <img src={b.faviconUrl} className="w-5 h-5 mt-1 flex-shrink-0" />
             )}
           </div>
->>>>>>> origin/development
 
           <div className="flex-1">
             {isEditingInline ? (
@@ -583,63 +735,56 @@ export default function BookmarkCard({
                   </a>
                   {urlElement}
                   {bookElement}
+
+                  {/* Description (legacy) */}
+                  {b.description && (
+                    <div className="text-sm text-emperor-muted mt-1 italic">
+                      {b.description}
+                    </div>
+                  )}
+
+                  {/* Extracted content preview */}
+                  {b.extractedText && (
+                    <div className="text-sm text-emperor-muted mt-2 p-2 bg-emperor-surface rounded border-l-2 border-emperor-accent/30">
+                      {b.extractedText}
+                    </div>
+                  )}
+
+                  {/* Screenshot thumbnail */}
+                  {b.screenshotUrl && (
+                    <div className="mt-2">
+                      <img
+                        src={b.screenshotUrl}
+                        alt="Page preview"
+                        className="w-full h-24 object-cover rounded border border-emperor-border opacity-70 hover:opacity-100 transition"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.open(b.url, '_blank');
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {book && (
+                    <div className="text-xs text-emperor-muted mt-1">
+                      In{" "}
+                      <button
+                        className="text-emperor-accent font-medium hover:underline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onActivateBook?.(book.id);
+                        }}
+                      >
+                        {book.name}
+                      </button>
+                    </div>
+                  )}
                 </div>
-<<<<<<< HEAD
               </div>
-=======
-
-                {/* Description (legacy) */}
-                {b.description && (
-                  <div className="text-sm text-emperor-muted mt-1 italic">
-                    {b.description}
-                  </div>
-                )}
-
-                {/* Extracted content preview */}
-                {b.extractedText && (
-                  <div className="text-sm text-emperor-muted mt-2 p-2 bg-emperor-surface rounded border-l-2 border-emperor-accent/30">
-                    {b.extractedText}
-                  </div>
-                )}
-
-                {/* Screenshot thumbnail */}
-                {b.screenshotUrl && (
-                  <div className="mt-2">
-                    <img
-                      src={b.screenshotUrl}
-                      alt="Page preview"
-                      className="w-full h-24 object-cover rounded border border-emperor-border opacity-70 hover:opacity-100 transition"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        window.open(b.url, '_blank');
-                      }}
-                    />
-                  </div>
-                )}
-
-                {book && (
-                  <div className="text-xs text-emperor-muted mt-1">
-                    In{" "}
-                    <button
-                      className="text-emperor-accent font-medium hover:underline"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onActivateBook?.(book.id);
-                      }}
-                    >
-                      {book.name}
-                    </button>
-                  </div>
-                )}
-              </>
->>>>>>> origin/development
             )}
           </div>
         </div>
 
-<<<<<<< HEAD
-        {actionButtons}
-=======
         {!isEditingInline && (
           <div className="flex items-center gap-3">
             <button
@@ -753,7 +898,6 @@ export default function BookmarkCard({
             </Button>
           </div>
         )}
->>>>>>> origin/development
       </div>
 
       {/* Tags + date */}
