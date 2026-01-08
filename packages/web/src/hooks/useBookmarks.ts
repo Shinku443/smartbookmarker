@@ -621,6 +621,22 @@ export function useBookmarks() {
   }
 
   /**
+   * toggleReadLater
+   * ---------------
+   * Toggles the read later status of a bookmark.
+   * Separate from pinned for "read later" functionality.
+   *
+   * @param id - Bookmark ID to toggle
+   */
+  function toggleReadLater(id: string) {
+    const nextBookmarks = bookmarks.map((b) =>
+      b.id === id ? { ...b, readLater: !b.readLater, updatedAt: Date.now() } : b
+    );
+
+    persistAll(nextBookmarks);
+  }
+
+  /**
    * retag
    * -----
    * Regenerates auto-tags for a bookmark and replaces existing auto-tags.
@@ -834,6 +850,7 @@ export function useBookmarks() {
     addBookmark,
     deleteBookmark,
     togglePin,
+    toggleReadLater,
     retag,
     updateBookmark,
     importHtml,

@@ -13,7 +13,8 @@ import type { Book } from "../models/Book";
 import { StarIcon as StarSolid } from "@heroicons/react/24/solid";
 import {
   StarIcon as StarOutline,
-  ClipboardIcon
+  ClipboardIcon,
+  ClockIcon
 } from "@heroicons/react/24/outline";
 
 /**
@@ -52,6 +53,7 @@ type Props = {
 
   onDelete: (id: string) => void;
   onPin: (id: string) => void;
+  onToggleReadLater: (id: string) => void;
   onRetag: (b: RichBookmark) => void;
   onTagClick: (tag: string) => void;
 
@@ -79,6 +81,7 @@ export default function BookmarkCard({
   onSaveInline,
   onDelete,
   onPin,
+  onToggleReadLater,
   onRetag,
   onTagClick,
   books,
@@ -113,9 +116,19 @@ export default function BookmarkCard({
 
           {/* Top row */}
           <div className="flex gap-3 items-start">
-            {b.faviconUrl && (
-              <img src={b.faviconUrl} className="w-5 h-5 mt-1" />
+          {/* Thumbnail and favicon */}
+          <div className="flex gap-2">
+            {b.thumbnailUrl && (
+              <img
+                src={b.thumbnailUrl}
+                className="w-12 h-8 object-cover rounded flex-shrink-0"
+                alt="Page preview"
+              />
             )}
+            {b.faviconUrl && (
+              <img src={b.faviconUrl} className="w-5 h-5 mt-1 flex-shrink-0" />
+            )}
+          </div>
 
             <div className="flex-1">
               <div className="font-semibold truncate">{b.title}</div>
@@ -266,9 +279,19 @@ export default function BookmarkCard({
             onClick={(e) => e.stopPropagation()}
           />
 
-          {b.faviconUrl && (
-            <img src={b.faviconUrl} className="w-5 h-5 mt-1" />
-          )}
+          {/* Thumbnail and favicon */}
+          <div className="flex gap-2">
+            {b.thumbnailUrl && (
+              <img
+                src={b.thumbnailUrl}
+                className="w-12 h-8 object-cover rounded flex-shrink-0"
+                alt="Page preview"
+              />
+            )}
+            {b.faviconUrl && (
+              <img src={b.faviconUrl} className="w-5 h-5 mt-1 flex-shrink-0" />
+            )}
+          </div>
 
           <div className="flex-1">
             {isEditingInline ? (
@@ -318,6 +341,13 @@ export default function BookmarkCard({
                     <ClipboardIcon className="w-4 h-4" />
                   </button>
                 </div>
+
+                {/* Description (legacy) */}
+                {b.description && (
+                  <div className="text-sm text-emperor-muted mt-1 italic">
+                    {b.description}
+                  </div>
+                )}
 
                 {/* Extracted content preview */}
                 {b.extractedText && (

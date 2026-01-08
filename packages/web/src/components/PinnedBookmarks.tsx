@@ -49,6 +49,7 @@ type Props = {
 
   onDelete: (id: string) => void;
   onPin: (id: string) => void;
+  onToggleReadLater: (id: string) => void;
   onRetag: (b: RichBookmark) => void;
   onEditRequest: (b: RichBookmark) => void;
   onSaveInline: (b: RichBookmark) => void;
@@ -136,6 +137,7 @@ export default function PinnedBookmarks({
                   activeTags={activeTags}
                   onDelete={actions.onDelete}
                   onPin={actions.onPin}
+                  onToggleReadLater={actions.onToggleReadLater}
                   onRetag={actions.onRetag}
                   onEditRequest={actions.onEditRequest}
                   onSaveInline={actions.onSaveInline}
@@ -161,6 +163,7 @@ export default function PinnedBookmarks({
                 activeTags={activeTags}
                 onDelete={() => {}}
                 onPin={() => {}}
+                onToggleReadLater={() => {}}
                 onRetag={() => {}}
                 onEditRequest={() => {}}
                 onSaveInline={() => {}}

@@ -16,6 +16,7 @@ import type { RichBookmark } from "../models/RichBookmark";
  *   - Book (group) navigation and selection
  *   - Multi‑tag filtering (OR logic)
  *   - Status filtering (favorite, archive, read_later, etc.)
+ *   - Content type filtering (articles, videos, images, etc.)
  *   - Import/Export tools for data management
  *   - Access to settings and the Book Manager modal
  */
@@ -51,6 +52,14 @@ type Props = {
   activeBookId: string | null;
   /** Sets the active book filter */
   setActiveBookId: (id: string | null) => void;
+
+  /** Current sort mode */
+  sortBy: "default" | "recent";
+  /** Sets the sort mode */
+  setSortBy: (sort: "default" | "recent") => void;
+
+  /** Ref for search input (for keyboard shortcuts) */
+  searchInputRef?: React.RefObject<HTMLInputElement>;
 
   /** Creates a new book inline (BookTree → App.tsx → addBook) */
   onCreateBook: (parentId: string | null, name: string) => void;
@@ -94,6 +103,9 @@ export default function Sidebar({
   bookmarks,
   activeBookId,
   setActiveBookId,
+  sortBy,
+  setSortBy,
+  searchInputRef,
   onCreateBook,
   onMoveBook,
   onBookmarkDrop,
@@ -113,7 +125,7 @@ export default function Sidebar({
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
   const [selectedSuggestionIndex, setSelectedSuggestionIndex] = useState(-1);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchInputRefLocal = useRef<HTMLInputElement>(null);
 
   // Import/Export modal state
   const [showImportExport, setShowImportExport] = useState(false);
@@ -314,6 +326,35 @@ export default function Sidebar({
   ];
 
   /**
+   * Content type options for filtering
+   */
+  const contentTypeOptions = [
+    { label: "Articles", search: "article OR blog OR news OR post" },
+    { label: "Videos", search: "youtube.com OR vimeo.com OR video OR watch" },
+    { label: "Images", search: "imgur.com OR flickr.com OR image OR photo OR picture" },
+    { label: "Audio", search: "soundcloud.com OR spotify.com OR podcast OR music OR audio" },
+    { label: "Documents", search: "pdf OR doc OR docx OR ppt OR xls OR drive.google.com" },
+    { label: "Code", search: "github.com OR gitlab.com OR code OR repository OR gist" }
+  ];
+
+  /**
+   * toggleContentType
+   * -----------------
+   * Toggles content type filters by adding/removing search terms
+   */
+  function toggleContentType(contentType: { label: string; search: string }) {
+    const isActive = search.includes(contentType.search);
+    if (isActive) {
+      // Remove the search term
+      setSearch(search.replace(new RegExp(`\\s*${contentType.search}\\s*`, 'gi'), '').trim());
+    } else {
+      // Add the search term
+      const newSearch = search ? `${search} ${contentType.search}` : contentType.search;
+      setSearch(newSearch);
+    }
+  }
+
+  /**
    * handleImport
    * ------------
    * Handles importing bookmarks from the ImportExportModal
@@ -353,7 +394,7 @@ export default function Sidebar({
 
         <div className="relative">
           <Input
-            ref={searchInputRef}
+            ref={searchInputRef || searchInputRefLocal}
             value={search}
             onChange={handleSearchChange}
             onKeyDown={handleSearchKeyDown}
@@ -485,6 +526,33 @@ export default function Sidebar({
                   onClick={() => toggleStatus(status.key)}
                 >
                   {status.emoji} {status.key.replace("_", " ")}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Content Types */}
+        <div className="px-4">
+          <h3 className="text-emperor-muted text-xs uppercase tracking-wide mb-2">
+            Content Types
+          </h3>
+
+          <div className="flex flex-wrap gap-2">
+            {contentTypeOptions.map((type) => {
+              const isActive = search.includes(type.search);
+              return (
+                <button
+                  key={type.label}
+                  className={`text-xs px-2 py-1 rounded-full border ${
+                    isActive
+                      ? "bg-blue-500/20 border-blue-400 text-blue-300"
+                      : "border-emperor-border hover:bg-emperor-surface"
+                  }`}
+                  onClick={() => toggleContentType(type)}
+                  title={`Filter by ${type.label.toLowerCase()}`}
+                >
+                  {type.label}
                 </button>
               );
             })}

@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import {
   DndContext,
   closestCenter,
@@ -100,6 +100,7 @@ export default function App() {
     addBookmark,
     deleteBookmark,
     togglePin,
+    toggleReadLater,
     retag,
     updateBookmark,
     importHtml,
@@ -132,6 +133,23 @@ export default function App() {
   }
 
   /**
+   * addBookmarkWithDescription
+   * --------------------------
+   * UI‑facing signature for modals:
+   *   (title: string, url: string, description: string | null, bookId: string | null) => void
+   *
+   * This matches the modal interfaces.
+   */
+  async function addBookmarkWithDescription(
+    title: string,
+    url: string,
+    description: string | null,
+    bookId: string | null
+  ): Promise<void> {
+    await addBookmark(title, url, bookId);
+  }
+
+  /**
    * Theme system
    * ------------
    * Controls dark/light/system mode and accent color.
@@ -160,6 +178,7 @@ export default function App() {
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [activeStatuses, setActiveStatuses] = useState<string[]>([]);
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<"default" | "recent">("default");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [editMode, setEditMode] = useState<"modal" | "inline">("inline");
@@ -658,6 +677,7 @@ export default function App() {
               onSaveInline={() => { }}
               onDelete={() => { }}
               onPin={() => { }}
+              onToggleReadLater={() => { }}
               onRetag={() => { }}
               onTagClick={() => { }}
               books={books}
@@ -691,6 +711,8 @@ export default function App() {
             bookmarks={bookmarks}
             activeBookId={activeBookId}
             setActiveBookId={setActiveBookId}
+            sortBy={sortBy}
+            setSortBy={setSortBy}
             onCreateBook={addBook}
             onMoveBook={moveBook}
             onBookmarkDrop={assignBookmarkToBook}
@@ -730,6 +752,7 @@ export default function App() {
               activeTags={activeTags}
               onDelete={deleteBookmark}
               onPin={togglePin}
+              onToggleReadLater={toggleReadLater}
               onRetag={handleRetag}
               onEditRequest={setEditingBookmark}
               onSaveInline={handleInlineSave}
@@ -758,6 +781,7 @@ export default function App() {
               activeDragId={activeId}
               onDelete={deleteBookmark}
               onPin={togglePin}
+              onToggleReadLater={toggleReadLater}
               onRetag={handleRetag}
               onEditRequest={setEditingBookmark}
               onSaveInline={handleInlineSave}
@@ -783,7 +807,7 @@ export default function App() {
       {showAddModal && (
         <AddBookmarkModal
           books={books}
-          onAddPage={addBookmark}
+          onAddPage={addBookmarkWithDescription}
           onCreateBook={addBook}
           onClose={() => setShowAddModal(false)}
         />
