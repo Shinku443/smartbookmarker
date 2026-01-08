@@ -4,10 +4,25 @@ export type PageDto = {
   title: string;
   content: string | null;
   url: string | null;
-  extractedText: string | null;
-  screenshotUrl: string | null;
-  metaDescription: string | null;
-  faviconUrl: string | null;
+
+  // Enhanced content fields
+  description?: string | null;
+  faviconUrl?: string | null;
+  thumbnailUrl?: string | null;
+  extractedText?: string | null;
+  screenshotUrl?: string | null;
+  metaDescription?: string | null;
+
+  // Status management
+  status?: string | null;
+
+  // Personal notes
+  notes?: string | null;
+
+  // Metadata
+  source: string;
+  rawMetadata?: any;
+
   order: number;
   pinned: boolean;
   createdAt: string;
@@ -67,4 +82,72 @@ export async function deletePage(id: string): Promise<void> {
     const text = await res.text().catch(() => "");
     throw new Error(text || `Request failed with ${res.status}`);
   }
+}
+
+// Enhanced API methods for content extraction and status management
+export async function createPageWithUrl(input: {
+  bookId: string;
+  title: string;
+  url: string;
+  status?: string;
+  notes?: string;
+}): Promise<PageDto> {
+  const res = await fetch(BASE, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return handleJson<PageDto>(res);
+}
+
+export async function extractPageContent(id: string, url: string): Promise<PageDto> {
+  const res = await fetch(`${BASE}/${id}/extract`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ url }),
+  });
+  return handleJson<PageDto>(res);
+}
+
+export async function updatePageStatus(id: string, status: string): Promise<PageDto> {
+  const res = await fetch(`${BASE}/${id}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+  return handleJson<PageDto>(res);
+}
+
+export async function updatePageNotes(id: string, notes: string): Promise<PageDto> {
+  const res = await fetch(`${BASE}/${id}/notes`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ notes }),
+  });
+  return handleJson<PageDto>(res);
+}
+
+export async function updatePageEnhanced(
+  id: string,
+  input: Partial<{
+    title: string;
+    content: string | null;
+    order: number;
+    pinned: boolean;
+    status: string;
+    notes: string;
+    description: string;
+    faviconUrl: string;
+    thumbnailUrl: string;
+    extractedText: string;
+    screenshotUrl: string;
+    metaDescription: string;
+  }>
+): Promise<PageDto> {
+  const res = await fetch(`${BASE}/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return handleJson<PageDto>(res);
 }

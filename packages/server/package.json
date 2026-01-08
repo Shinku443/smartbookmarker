@@ -13,9 +13,12 @@
 
   "dependencies": {
     "@prisma/client": "5.15.0",
+    "axios": "^1.6.8",
+    "cheerio": "^1.0.0-rc.12",
     "fastify": "^4.26.2",
     "@fastify/cors": "^8.3.0",
     "fastify-plugin": "^4.5.0",
+    "puppeteer": "^22.6.5",
     "zod": "^3.23.8"
   },
 
