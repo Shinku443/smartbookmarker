@@ -8,5 +8,14 @@ export default defineConfig({
     alias: {
       "@smart/core": path.resolve(__dirname, "../core")
     }
+  },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:4000',
+        changeOrigin: true,
+        secure: false
+      }
+    }
   }
 });

@@ -46,9 +46,15 @@ export async function loadBookmarks(): Promise<PersistedData> {
     const parsed = JSON.parse(raw);
 
     // Ensure all fields exist even if older versions are missing them
+    const loadedBooks = parsed.books ?? [];
+    const validatedBooks = loadedBooks.map((book: any) => ({
+      ...book,
+      order: Array.isArray(book.order) ? book.order : []
+    }));
+
     return {
       bookmarks: parsed.bookmarks ?? [],
-      books: parsed.books ?? [],
+      books: validatedBooks,
       rootOrder: parsed.rootOrder ?? [],
       pinnedOrder: parsed.pinnedOrder ?? []
     };
