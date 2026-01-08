@@ -16,6 +16,7 @@ import {
 import BookmarkCard from "./BookmarkCard";
 import type { RichBookmark } from "../models/RichBookmark";
 import type { Book } from "../models/Book";
+import type { ViewMode, InfoVisibility } from "./SettingsScreen";
 
 /**
  * PinnedBookmarks.tsx
@@ -61,6 +62,12 @@ type Props = {
 
   /** Moves a pinned bookmark to a different book (or root) */
   onMoveToBook: (id: string, bookId: string | null) => void;
+
+  /** View mode: card, list, or grid */
+  viewMode?: ViewMode;
+
+  /** Info visibility settings */
+  infoVisibility?: InfoVisibility;
 };
 
 export default function PinnedBookmarks({
@@ -72,6 +79,14 @@ export default function PinnedBookmarks({
   onReorderPinned,
   activeTags,
   onMoveToBook,
+  viewMode = "card",
+  infoVisibility = {
+    favicon: true,
+    url: true,
+    tags: true,
+    date: true,
+    book: true
+  },
   ...actions
 }: Props) {
   const pinned = bookmarks.filter((b) => b.pinned);
@@ -144,6 +159,8 @@ export default function PinnedBookmarks({
                   onTagClick={actions.onTagClick}
                   onMoveToBook={onMoveToBook}
                   canReorder={true}
+                  viewMode={viewMode}
+                  infoVisibility={infoVisibility}
                 />
               </li>
             ))}

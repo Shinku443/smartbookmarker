@@ -6,6 +6,7 @@ import BookmarkCard from "./BookmarkCard";
 import MultiSelectToolbar from "./MultiSelectToolbar";
 import type { RichBookmark } from "../models/RichBookmark";
 import type { Book } from "../models/Book";
+import type { ViewMode, InfoVisibility } from "./SettingsScreen";
 
 // Advanced search utilities
 function parseAdvancedSearch(query: string): {
@@ -195,6 +196,12 @@ type Props = {
 
   /** Activates a book when its label is clicked on a card */
   onActivateBook: (bookId: string) => void;
+
+  /** View mode: card, list, or grid */
+  viewMode?: ViewMode;
+
+  /** Info visibility settings */
+  infoVisibility?: InfoVisibility;
 };
 
 export default function BookmarkList({
@@ -218,7 +225,15 @@ export default function BookmarkList({
   activeBookId,
   canReorder,
   activeDragId,
-  onActivateBook
+  onActivateBook,
+  viewMode = "card",
+  infoVisibility = {
+    favicon: true,
+    url: true,
+    tags: true,
+    date: true,
+    book: true
+  }
 }: Props) {
   /**
    * toggleSelected
@@ -364,6 +379,13 @@ export default function BookmarkList({
    */
   const ids = bookmarks.map((b) => b.id);
 
+  // Container classes based on view mode
+  const containerClass = viewMode === "grid"
+    ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+    : "space-y-4";
+
+  const listItemClass = viewMode === "grid" ? "" : "";
+
   return (
     <div>
       {/* Multi‑select toolbar (bulk actions) */}
@@ -432,9 +454,9 @@ export default function BookmarkList({
 
       {/* Sortable context for main bookmark list */}
       <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-        <ul className="space-y-4">
+        <div className={containerClass}>
           {filteredBookmarks.map((b) => (
-            <li key={b.id}>
+            <div key={b.id} className={listItemClass}>
               <BookmarkCard
                 b={b}
                 books={books}
@@ -452,14 +474,16 @@ export default function BookmarkList({
                 onMoveToBook={onMoveToBook}
                 canReorder={canReorder}
                 onActivateBook={onActivateBook}
+                viewMode={viewMode}
+                infoVisibility={infoVisibility}
               />
-            </li>
+            </div>
           ))}
-        </ul>
+        </div>
       </SortableContext>
 
       {/* Ghost placeholder when dragging + reordering is allowed */}
-      {activeDragId && canReorder && (
+      {activeDragId && canReorder && viewMode !== "grid" && (
         <div className="h-1 bg-emperor-surfaceStrong rounded-card opacity-40 mt-2" />
       )}
     </div>

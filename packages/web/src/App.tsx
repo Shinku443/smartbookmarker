@@ -18,7 +18,7 @@ import BookmarkList from "./components/BookmarkList";
 import PinnedBookmarks from "./components/PinnedBookmarks";
 import EditBookmarkModal from "./components/modals/EditBookmarkModal";
 import AddBookmarkModal from "./components/modals/AddBookmarkModal";
-import SettingsScreen from "./components/SettingsScreen";
+import SettingsScreen, { type ViewMode, type InfoVisibility } from "./components/SettingsScreen";
 import BookManagerModal from "./components/modals/BookManagerModal";
 import Breadcrumb from "./components/Breadcrumb";
 import BookmarkCard from "./components/BookmarkCard";
@@ -32,6 +32,7 @@ import { useTheme } from "./hooks/useTheme";
 import { useAISettings } from "./hooks/useAISettings";
 import { useAppSettings } from "./hooks/useAppSettings";
 import { sortBookmarks } from "./utils/bookmarkSorter";
+import { loadViewSettings, saveViewSettings } from "./storage/webStorage";
 
 /**
  * App.tsx
@@ -182,6 +183,14 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [editMode, setEditMode] = useState<"modal" | "inline">("inline");
+  const [viewMode, setViewMode] = useState<ViewMode>("card");
+  const [infoVisibility, setInfoVisibility] = useState<InfoVisibility>({
+    favicon: true,
+    url: true,
+    tags: true,
+    date: true,
+    book: true
+  });
   const [editingBookmark, setEditingBookmark] = useState<RichBookmark | null>(
     null
   );
@@ -735,6 +744,10 @@ export default function App() {
             setTheme={setTheme}
             editMode={editMode}
             setEditMode={setEditMode}
+            viewMode={viewMode}
+            setViewMode={setViewMode}
+            infoVisibility={infoVisibility}
+            setInfoVisibility={setInfoVisibility}
             aiSettings={aiSettings}
             setAISettings={setAISettings}
             appSettings={appSettings}
