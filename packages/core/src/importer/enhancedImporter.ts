@@ -472,12 +472,15 @@ export class EnhancedBookmarkImporter {
     function flatten(folder: ImportFolder, parentBookId?: string) {
       // Set bookId for bookmarks in this folder
       const folderBookId = folder.id;
+      console.log('🔍 flattenFolders: Processing folder:', folder.name, 'with ID:', folderBookId, 'bookmarks:', folder.bookmarks.length);
 
       for (const bookmark of folder.bookmarks) {
-        allBookmarks.push({
+        const bookmarkWithBookId = {
           ...bookmark,
           bookId: folderBookId
-        });
+        };
+        console.log('🔍 flattenFolders: Adding bookmark:', bookmark.title, 'to folder:', folder.name, 'bookId:', folderBookId);
+        allBookmarks.push(bookmarkWithBookId);
       }
 
       // Recursively process child folders
@@ -489,6 +492,9 @@ export class EnhancedBookmarkImporter {
     for (const folder of folders) {
       flatten(folder);
     }
+
+    console.log('🔍 flattenFolders: Final result -', allBookmarks.length, 'bookmarks');
+    console.log('🔍 flattenFolders: Sample bookmark bookIds:', allBookmarks.slice(0, 3).map(b => ({ title: b.title, bookId: b.bookId })));
 
     return allBookmarks;
   }

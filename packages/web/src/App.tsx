@@ -355,7 +355,7 @@ export default function App() {
    * Handles importing processed bookmark data from ImportExportModal.
    * Creates books and bookmarks as needed with progress tracking and cancellation.
    */
-  async function handleImportBookmarks(importedBookmarks: RichBookmark[], onProgress?: (progress: { current: number; total: number; currentItem?: string }) => void, onCancel?: () => boolean) {
+  async function handleImportBookmarks(importedBookmarks: RichBookmark[], folders?: any[], onProgress?: (progress: { current: number; total: number; currentItem?: string }) => void, onCancel?: () => boolean) {
     const verboseDebug = appSettings.verboseDebug;
 
     if (verboseDebug) {
@@ -366,10 +366,18 @@ export default function App() {
       console.log('🔍 VERBOSE DEBUG: Current bookmarks before import:', bookmarks.length);
     }
 
+    // Create a map to track folder ID -> folder name (for HTML imports)
+    const folderIdToName = new Map<string, string>();
+    if (folders) {
+      for (const folder of folders) {
+        folderIdToName.set(folder.id, folder.name);
+      }
+    }
+
     // Create a map to track book name -> book ID
     const bookMap = new Map<string, string>();
 
-    // Collect unique book names that need to be created from bookmark.bookId (which are folder names from HTML import)
+    // Collect unique book names that need to be created
     const bookNamesToCreate = new Set<string>();
     for (const bookmark of importedBookmarks) {
       if (verboseDebug) {
@@ -377,15 +385,16 @@ export default function App() {
       }
 
       if (bookmark.bookId && typeof bookmark.bookId === 'string') {
-        const bookName = bookmark.bookId;
-        if (!books.find(b => b.name === bookName)) {
-          bookNamesToCreate.add(bookName);
+        // For HTML imports, bookmark.bookId is the folder ID, get the actual folder name
+        const folderName = folderIdToName.get(bookmark.bookId) || bookmark.bookId;
+        if (!books.find(b => b.name === folderName)) {
+          bookNamesToCreate.add(folderName);
           if (verboseDebug) {
-            console.log('🔍 VERBOSE DEBUG: Will create book:', bookName);
+            console.log('🔍 VERBOSE DEBUG: Will create book:', folderName);
           }
         } else {
           if (verboseDebug) {
-            console.log('🔍 VERBOSE DEBUG: Book already exists:', bookName);
+            console.log('🔍 VERBOSE DEBUG: Book already exists:', folderName);
           }
         }
       } else {
@@ -399,7 +408,8 @@ export default function App() {
       console.log('🔍 VERBOSE DEBUG: Books to create:', Array.from(bookNamesToCreate));
     }
 
-    // Create all needed books
+    // Create all needed books and collect them
+    const createdBooks: Book[] = [];
     const newBooks = [...books];
     for (const bookName of bookNamesToCreate) {
       // Check if cancelled
@@ -409,6 +419,8 @@ export default function App() {
       }
 
       const newBook = rawAddBook(bookName, null);
+      createdBooks.push(newBook);
+      newBooks.push(newBook); // Add to the books array we'll use for persistAll
       bookMap.set(bookName, newBook.id);
       if (verboseDebug) {
         console.log('🔍 VERBOSE DEBUG: Created book:', bookName, '->', newBook.id);
@@ -448,8 +460,9 @@ export default function App() {
           let targetBookId: string | null = null;
 
           if (bookmark.bookId && typeof bookmark.bookId === 'string') {
-            // Map book name to book ID
-            targetBookId = bookMap.get(bookmark.bookId) || null;
+            // For HTML imports, bookmark.bookId is the folder ID, get the actual folder name first
+            const folderName = folderIdToName.get(bookmark.bookId) || bookmark.bookId;
+            targetBookId = bookMap.get(folderName) || null;
           }
 
           // Create bookmark with new ID and proper structure
