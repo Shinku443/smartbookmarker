@@ -277,18 +277,25 @@ function DraggableBookItem({
 
   /* ------------------------------ Hover Expand --------------------------- */
 
+  // Track if we're in nesting mode (held for 2+ seconds)
+  const [isNestingMode, setIsNestingMode] = useState(false);
+
   useEffect(() => {
     const shouldExpand =
       isOver && !isExpanded && !isDraggingBookmark && hasChildren;
 
     if (shouldExpand) {
       if (hoverTimer.current == null) {
+        // Start nesting mode after 2 seconds
         hoverTimer.current = window.setTimeout(() => {
+          setIsNestingMode(true);
           autoExpandOnHover(node.id);
           hoverTimer.current = null;
-        }, 800);
+        }, 2000);
       }
     } else {
+      // Cancel nesting mode and timer
+      setIsNestingMode(false);
       if (hoverTimer.current != null) {
         window.clearTimeout(hoverTimer.current);
         hoverTimer.current = null;
@@ -296,6 +303,7 @@ function DraggableBookItem({
     }
 
     return () => {
+      setIsNestingMode(false);
       if (hoverTimer.current != null) {
         window.clearTimeout(hoverTimer.current);
         hoverTimer.current = null;
@@ -415,13 +423,17 @@ function DraggableBookItem({
               e.stopPropagation();
               onToggleExpanded(node.id);
             }}
-            className="w-4 h-4 flex items-center justify-center text-emperor-muted hover:text-emperor-text mr-1"
+            className={`w-4 h-4 flex items-center justify-center mr-1 transition-colors ${
+              isNestingMode
+                ? "text-emperor-accent animate-pulse"
+                : "text-emperor-muted hover:text-emperor-text"
+            }`}
           >
             {hasChildren ? (
               isExpanded ? (
-                <ChevronDownIcon className="w-3 h-3" />
+                <ChevronDownIcon className={`w-3 h-3 ${isNestingMode ? "animate-bounce" : ""}`} />
               ) : (
-                <ChevronRightIcon className="w-3 h-3" />
+                <ChevronRightIcon className={`w-3 h-3 ${isNestingMode ? "animate-bounce" : ""}`} />
               )
             ) : (
               <span className="inline-block w-3 h-3" />

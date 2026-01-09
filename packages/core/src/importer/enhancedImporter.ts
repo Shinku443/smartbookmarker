@@ -67,8 +67,12 @@ export class EnhancedBookmarkImporter {
    * Import bookmarks from HTML (Netscape format)
    */
   async importFromHtml(html: string): Promise<ImportResult> {
+    console.log('🔍 EnhancedBookmarkImporter.importFromHtml called with HTML length:', html.length);
+
     const parser = new DOMParser();
     const doc = parser.parseFromString(html, "text/html");
+
+    console.log('🔍 HTML document parsed, body children:', Array.from(doc.body.children).map(c => c.tagName));
 
     const progress: ImportProgress = {
       total: 0,
@@ -77,11 +81,23 @@ export class EnhancedBookmarkImporter {
       errors: 0
     };
 
-    // Parse folder structure
-    const rootFolders = this.parseHtmlFolders(doc);
-    const allBookmarks = this.flattenFolders(rootFolders);
+    let allBookmarks: Bookmark[] = [];
+    let rootFolders: ImportFolder[] = [];
 
-    progress.total = allBookmarks.length;
+    try {
+      // Parse folder structure
+      console.log('🔍 About to call parseHtmlFolders...');
+      rootFolders = this.parseHtmlFolders(doc);
+      console.log('🔍 parseHtmlFolders returned:', rootFolders.length, 'folders');
+
+      allBookmarks = this.flattenFolders(rootFolders);
+      console.log('🔍 flattenFolders returned:', allBookmarks.length, 'bookmarks');
+
+      progress.total = allBookmarks.length;
+    } catch (error) {
+      console.error('🔍 ERROR in importFromHtml:', error);
+      throw error;
+    }
 
     const bookmarks: Bookmark[] = [];
     const seenUrls = new Set<string>();
@@ -191,13 +207,105 @@ export class EnhancedBookmarkImporter {
   private parseHtmlFolders(doc: Document): ImportFolder[] {
     const folders: ImportFolder[] = [];
 
-    // Parse DT/DD structure for folders
-    const dlElements = Array.from(doc.querySelectorAll('dl'));
+    // Start parsing from the body element
+    const bodyFolders = this.parseElementFolders(doc.body);
+    folders.push(...bodyFolders);
 
-    for (const dl of dlElements) {
-      const folder = this.parseHtmlFolder(dl);
-      if (folder) {
-        folders.push(folder);
+    return folders;
+  }
+
+  private parseElementFolders(element: Element): ImportFolder[] {
+    const folders: ImportFolder[] = [];
+
+    // Netscape format wraps DT elements in P tags, so we need to look deeper
+    const allElements = Array.from(element.querySelectorAll('*'));
+    const dtElements = allElements.filter(el => el.tagName === 'DT');
+
+    for (let i = 0; i < dtElements.length; i++) {
+      const child = dtElements[i];
+
+      // Look for DT elements that contain H3 (folders)
+      if (child.tagName === 'DT') {
+        const dtChildren = Array.from(child.children);
+
+        for (let j = 0; j < dtChildren.length; j++) {
+          const dtChild = dtChildren[j];
+
+          if (dtChild.tagName === 'H3') {
+            // Found a folder
+            const folderName = dtChild.textContent?.trim() || `Folder ${i}`;
+            const folder: ImportFolder = {
+              id: crypto.randomUUID(),
+              name: folderName,
+              bookmarks: [],
+              children: []
+            };
+
+            // Look for the DL element that contains the folder contents
+            // It might be in the same DT or the next sibling
+            let folderDl: Element | null = null;
+
+            // Check remaining children of this DT
+            for (let k = j + 1; k < dtChildren.length; k++) {
+              if (dtChildren[k].tagName === 'DL') {
+                folderDl = dtChildren[k];
+                break;
+              }
+            }
+
+            // If not found, check the next sibling of the parent DT
+            if (!folderDl) {
+              const nextSibling = dtElements[i + 1]?.parentElement?.nextElementSibling;
+              if (nextSibling && nextSibling.tagName === 'DL') {
+                folderDl = nextSibling;
+              }
+            }
+
+            // Parse folder contents if DL was found
+            if (folderDl) {
+              const subFolders = this.parseElementFolders(folderDl);
+              folder.children.push(...subFolders);
+
+              // Also look for direct DT children in the DL
+              const dlChildren = Array.from(folderDl.children);
+              for (const dlChild of dlChildren) {
+                if (dlChild.tagName === 'DT') {
+                  const dtGrandChildren = Array.from(dlChild.children);
+                  for (const dtGrandChild of dtGrandChildren) {
+                    if (dtGrandChild.tagName === 'A' && (dtGrandChild as HTMLAnchorElement).href) {
+                      // Found a bookmark
+                      const bookmark = this.parseHtmlBookmark(dtGrandChild);
+                      if (bookmark) {
+                        folder.bookmarks.push(bookmark);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+
+            folders.push(folder);
+            break; // Found the H3, processed the folder
+          }
+
+          else if (dtChild.tagName === 'A' && (dtChild as HTMLAnchorElement).href) {
+            // Found a root-level bookmark
+            const bookmark = this.parseHtmlBookmark(dtChild);
+            if (bookmark) {
+              // Create a default folder for root bookmarks
+              if (folders.length === 0 || folders[folders.length - 1].name !== 'Root Bookmarks') {
+                folders.push({
+                  id: crypto.randomUUID(),
+                  name: 'Root Bookmarks',
+                  bookmarks: [],
+                  children: []
+                });
+              }
+              folders[folders.length - 1].bookmarks.push(bookmark);
+            }
+            break; // Found the A, processed the bookmark
+          }
+        }
       }
     }
 
@@ -361,16 +469,20 @@ export class EnhancedBookmarkImporter {
   private flattenFolders(folders: ImportFolder[]): Bookmark[] {
     const allBookmarks: Bookmark[] = [];
 
-    function flatten(folder: ImportFolder, bookId?: string) {
+    function flatten(folder: ImportFolder, parentBookId?: string) {
+      // Set bookId for bookmarks in this folder
+      const folderBookId = folder.id;
+
       for (const bookmark of folder.bookmarks) {
         allBookmarks.push({
           ...bookmark,
-          bookId: bookId || null
+          bookId: folderBookId
         });
       }
 
+      // Recursively process child folders
       for (const child of folder.children) {
-        flatten(child, bookId);
+        flatten(child, folderBookId);
       }
     }
 

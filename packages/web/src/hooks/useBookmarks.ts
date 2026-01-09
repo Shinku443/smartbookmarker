@@ -514,6 +514,8 @@ export function useBookmarks() {
 
       const id = crypto.randomUUID();
 
+      console.log(`[PAGE CREATE] Creating Page "${title}"`);
+
       const newBookmark: RichBookmark = {
         id,
         bookId,
@@ -925,7 +927,11 @@ export function useBookmarks() {
     assignBookmarkToBook,
     reorderBookPages,
     reorderBooks,
-    reorderPinned
+    reorderPinned,
+
+    // Internal functions for import
+    computeFavicon,
+    persistAll
   };
 }
 

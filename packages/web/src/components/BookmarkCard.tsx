@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
@@ -15,7 +15,8 @@ import { StarIcon as StarSolid } from "@heroicons/react/24/solid";
 import {
   StarIcon as StarOutline,
   ClipboardIcon,
-  ClockIcon
+  ClockIcon,
+  Bars3Icon
 } from "@heroicons/react/24/outline";
 
 /**
@@ -196,6 +197,21 @@ export default function BookmarkCard({
   const [inlineUrl, setInlineUrl] = useState(b.url);
   const [isEditingInline, setIsEditingInline] = useState(false);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Click outside handler to close dropdown
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowStatusDropdown(false);
+      }
+    }
+
+    if (showStatusDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showStatusDropdown]);
 
   const {
     attributes,
@@ -209,17 +225,14 @@ export default function BookmarkCard({
   /**
    * DnD style
    * ---------
-   * IMPORTANT:
-   *   When isDragging, we do NOT apply the sortable transform to the
-   *   original DOM node. The moving representation is handled by the
-   *   DragOverlay. This prevents the "double transform" bug where the
-   *   overlay appears offset (e.g., bottom-right) and reordering feels
-   *   biased or only works in one direction.
+   * Use @dnd-kit's sortable transforms for real-time insertion feedback during drag.
+   * Cards shift to show insertion points, then "plop" to final position on drop.
    */
- const style = {
-  transform: isDragging ? undefined : CSS.Transform.toString(transform),
-  transition: isDragging ? "none" : transition,
-};
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition: isDragging ? "none" : "none", // No transitions - instant "plop" on drop
+    opacity: isDragging ? 0.5 : 1,
+  };
 
   function startEdit() {
     if (editMode === "modal") onEditRequest(b);
@@ -264,6 +277,7 @@ export default function BookmarkCard({
   const currentStatus = statusOptions.find(s => s.key === (b.status || 'active'));
 
   // Common elements based on visibility settings
+
   const faviconElement = infoVisibility.favicon && b.faviconUrl && (
     <img src={b.faviconUrl} className="w-5 h-5 mt-1 flex-shrink-0" />
   );
@@ -324,7 +338,7 @@ export default function BookmarkCard({
   // Base card styling
   const baseCardClass = `
     border transition relative group
-    ${canReorder ? "cursor-grab active:cursor-grabbing" : "cursor-default"}
+    ${canReorder ? "cursor-default" : "cursor-default"}
     ${isDragging ? "opacity-0 invisible pointer-events-none" : ""}
     ${b.pinned
       ? "bg-blue-900/30 border-blue-400/30 shadow-[0_0_12px_rgba(0,0,255,0.25)]"
@@ -413,41 +427,41 @@ export default function BookmarkCard({
                       )}
                     </button>
 
-                    {/* Status Selector */}
-                    <div className="relative">
+              {/* Status Selector */}
+              <div className="relative" ref={dropdownRef}>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowStatusDropdown(!showStatusDropdown);
+                  }}
+                  className="text-sm px-2 py-1 rounded border border-emperor-border hover:bg-emperor-surface transition flex items-center gap-1"
+                  title={`Status: ${currentStatus?.label}`}
+                >
+                  <span>{currentStatus?.emoji}</span>
+                  <span className="text-xs">▼</span>
+                </button>
+
+                {showStatusDropdown && (
+                  <div className="absolute right-0 top-full mt-1 bg-emperor-surface border border-emperor-border rounded-md shadow-lg z-10 min-w-[120px]">
+                    {statusOptions.map((status) => (
                       <button
+                        key={status.key}
                         onClick={(e) => {
                           e.stopPropagation();
-                          setShowStatusDropdown(!showStatusDropdown);
+                          updateStatus(status.key);
+                          setShowStatusDropdown(false);
                         }}
-                        className="text-sm px-2 py-1 rounded border border-emperor-border hover:bg-emperor-surface transition flex items-center gap-1"
-                        title={`Status: ${currentStatus?.label}`}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-emperor-surfaceStrong flex items-center gap-2 ${
+                          status.key === (b.status || 'active') ? 'bg-emperor-accent/10 text-emperor-accent' : ''
+                        }`}
                       >
-                        <span>{currentStatus?.emoji}</span>
-                        <span className="text-xs">▼</span>
+                        <span>{status.emoji}</span>
+                        <span>{status.label}</span>
                       </button>
-
-                      {showStatusDropdown && (
-                        <div className="absolute right-0 top-full mt-1 bg-emperor-surface border border-emperor-border rounded-md shadow-lg z-10 min-w-[120px]">
-                          {statusOptions.map((status) => (
-                            <button
-                              key={status.key}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                updateStatus(status.key);
-                                setShowStatusDropdown(false);
-                              }}
-                              className={`w-full text-left px-3 py-2 text-sm hover:bg-emperor-surfaceStrong flex items-center gap-2 ${
-                                status.key === (b.status || 'active') ? 'bg-emperor-accent/10 text-emperor-accent' : ''
-                              }`}
-                            >
-                              <span>{status.emoji}</span>
-                              <span>{status.label}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
                     <Button
                       size="sm"
@@ -525,7 +539,7 @@ export default function BookmarkCard({
         style={style}
         {...attributes}
         {...(canReorder ? listeners : {})}
-        className={`${baseCardClass} p-4 h-48 flex flex-col`}
+        className={`${baseCardClass} p-4 h-64 flex flex-col`}
       >
         <div className="flex items-start gap-3 mb-3">
           <input
@@ -566,7 +580,7 @@ export default function BookmarkCard({
               </button>
 
               {/* Status Selector */}
-              <div className="relative">
+              <div className="relative" ref={dropdownRef}>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -682,6 +696,18 @@ export default function BookmarkCard({
             onClick={(e) => e.stopPropagation()}
           />
 
+          {/* Drag handle */}
+          {canReorder && (
+            <div
+              {...attributes}
+              {...listeners}
+              className="mt-1 p-1 hover:bg-emperor-surfaceStrong rounded cursor-grab active:cursor-grabbing touch-none"
+              title="Drag to reorder"
+            >
+              <Bars3Icon className="w-4 h-4 text-emperor-muted" />
+            </div>
+          )}
+
           {/* Thumbnail and favicon */}
           <div className="flex gap-2">
             {b.thumbnailUrl && (
@@ -784,7 +810,7 @@ export default function BookmarkCard({
             </button>
 
             {/* Status Selector */}
-            <div className="relative">
+            <div className="relative" ref={dropdownRef}>
               <button
                 onClick={(e) => {
                   e.stopPropagation();

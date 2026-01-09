@@ -1,6 +1,60 @@
-import React, { useMemo, useState, useCallback } from "react";
-import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import React, { useMemo, useState, useCallback, useEffect, useRef } from "react";
+import { SortableContext, verticalListSortingStrategy, rectSortingStrategy } from "@dnd-kit/sortable";
 import Fuse from "fuse.js";
+
+// Custom bubble sort strategy - items swap places as dragged item moves through
+function bubbleSortStrategy({
+  activeIndex,
+  activeNodeRect,
+  index,
+  rects,
+  overIndex,
+}: {
+  activeIndex: number;
+  activeNodeRect: any;
+  index: number;
+  rects: any[];
+  overIndex: number;
+}) {
+  const rect = rects[index];
+
+  if (!rect) return null;
+
+  // If this item is the active (dragged) item, keep it at drag position
+  if (index === activeIndex) {
+    return {
+      x: activeNodeRect.left - rect.left,
+      y: activeNodeRect.top - rect.top,
+      scaleX: 1,
+      scaleY: 1,
+    };
+  }
+
+  // Calculate how many positions this item should move
+  let targetIndex = index;
+
+  if (overIndex > activeIndex) {
+    // Dragging downward - items above overIndex move up
+    if (index > activeIndex && index <= overIndex) {
+      targetIndex = index - 1;
+    }
+  } else if (overIndex < activeIndex) {
+    // Dragging upward - items below overIndex move down
+    if (index >= overIndex && index < activeIndex) {
+      targetIndex = index + 1;
+    }
+  }
+
+  const targetRect = rects[targetIndex];
+  if (!targetRect) return null;
+
+  return {
+    x: targetRect.left - rect.left,
+    y: targetRect.top - rect.top,
+    scaleX: 1,
+    scaleY: 1,
+  };
+}
 
 import BookmarkCard from "./BookmarkCard";
 import MultiSelectToolbar from "./MultiSelectToolbar";
@@ -235,6 +289,10 @@ export default function BookmarkList({
     book: true
   }
 }: Props) {
+  // Debug effect to track prop changes
+  useEffect(() => {
+    console.log('BookmarkList: bookmarks prop changed, length:', bookmarks.length);
+  }, [bookmarks.length]);
   /**
    * toggleSelected
    * --------------
@@ -255,7 +313,7 @@ export default function BookmarkList({
    * Simple bulk actions delegated to App handlers.
    */
   function selectAll() {
-    setSelectedIds(bookmarks.map((b) => b.id));
+    setSelectedIds(filteredBookmarks.map((b) => b.id));
   }
 
   function clearAll() {
@@ -263,8 +321,23 @@ export default function BookmarkList({
   }
 
   function deleteSelected() {
-    for (const id of selectedIds) onDelete(id);
+    console.log('Deleting selected bookmarks:', selectedIds);
+    console.log('Current bookmarks before deletion:', bookmarks.length);
+    console.log('Current filtered bookmarks before deletion:', filteredBookmarks.length);
+
+    // Delete all selected items at once to avoid stale state issues
+    selectedIds.forEach(id => onDelete(id));
+
+    // Clear selection immediately after deletions
     setSelectedIds([]);
+
+    console.log('Selection cleared, deletions should be processed');
+
+    // Log state after deletions (will show on next render)
+    setTimeout(() => {
+      console.log('After deletions - bookmarks prop length:', bookmarks.length);
+      console.log('After deletions - filtered bookmarks length:', filteredBookmarks.length);
+    }, 100);
   }
 
   function tagSelected() {
@@ -376,12 +449,52 @@ export default function BookmarkList({
    * This ensures:
    *   - Dragging works even when items are filtered
    *   - DnD ordering is always based on the true source of truth
+   *
+   * Only create sortable context when reordering is allowed.
    */
-  const ids = bookmarks.map((b) => b.id);
+  const ids = canReorder ? bookmarks.map((b) => b.id) : [];
+
+  // Infinite scrolling state
+  const [visibleCount, setVisibleCount] = useState(20);
+  const loadMoreTriggerRef = useRef<HTMLDivElement>(null);
+
+  // Reset visible count when filters change
+  useEffect(() => {
+    setVisibleCount(20);
+  }, [filteredBookmarks.length, search, activeTags, activeStatuses, activeBookId]);
+
+  // Intersection observer for infinite scrolling
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting && visibleCount < filteredBookmarks.length) {
+          // Load more items when trigger comes into view
+          setVisibleCount(prev => Math.min(prev + 20, filteredBookmarks.length));
+        }
+      },
+      { threshold: 0.1, rootMargin: '100px' }
+    );
+
+    const currentTrigger = loadMoreTriggerRef.current;
+    if (currentTrigger) {
+      observer.observe(currentTrigger);
+    }
+
+    return () => {
+      if (currentTrigger) {
+        observer.unobserve(currentTrigger);
+      }
+    };
+  }, [visibleCount, filteredBookmarks.length]);
+
+  // Get visible bookmarks for rendering
+  const visibleBookmarks = filteredBookmarks.slice(0, visibleCount);
+  const hasMoreItems = visibleCount < filteredBookmarks.length;
 
   // Container classes based on view mode
   const containerClass = viewMode === "grid"
-    ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+    ? "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 auto-rows-fr"
     : "space-y-4";
 
   const listItemClass = viewMode === "grid" ? "" : "";
@@ -391,7 +504,7 @@ export default function BookmarkList({
       {/* Multi‑select toolbar (bulk actions) */}
       <MultiSelectToolbar
         selectedCount={selectedIds.length}
-        totalCount={bookmarks.length}
+        totalCount={filteredBookmarks.length}
         onSelectAll={selectAll}
         onClearAll={clearAll}
         onDeleteSelected={deleteSelected}
@@ -452,10 +565,50 @@ export default function BookmarkList({
         </div>
       )}
 
-      {/* Sortable context for main bookmark list */}
-      <SortableContext items={ids} strategy={verticalListSortingStrategy}>
-        <div className={containerClass}>
-          {filteredBookmarks.map((b) => (
+      {/* Conditionally wrap with sortable context */}
+      {canReorder ? (
+        <SortableContext
+          items={ids}
+          strategy={viewMode === "grid" ? rectSortingStrategy : bubbleSortStrategy}
+        >
+          <div className={`${containerClass} mt-4`}>
+            {visibleBookmarks.map((b) => (
+              <div key={b.id} className={listItemClass}>
+                <BookmarkCard
+                  b={b}
+                  books={books}
+                  selected={selectedIds.includes(b.id)}
+                  onToggleSelected={toggleSelected}
+                  editMode={editMode}
+                  activeTags={activeTags}
+                  onDelete={onDelete}
+                  onPin={onPin}
+                  onToggleReadLater={onToggleReadLater}
+                  onRetag={onRetag}
+                  onEditRequest={onEditRequest}
+                  onSaveInline={onSaveInline}
+                  onTagClick={onTagClick}
+                  onMoveToBook={onMoveToBook}
+                  canReorder={canReorder}
+                  onActivateBook={onActivateBook}
+                  viewMode={viewMode}
+                  infoVisibility={infoVisibility}
+                />
+              </div>
+            ))}
+            {/* Load more trigger */}
+            {hasMoreItems && (
+              <div ref={loadMoreTriggerRef} className="col-span-full flex justify-center py-4">
+                <div className="text-sm text-emperor-muted">
+                  Loading more bookmarks...
+                </div>
+              </div>
+            )}
+          </div>
+        </SortableContext>
+      ) : (
+        <div className={`${containerClass} mt-4`}>
+          {visibleBookmarks.map((b) => (
             <div key={b.id} className={listItemClass}>
               <BookmarkCard
                 b={b}
@@ -479,13 +632,19 @@ export default function BookmarkList({
               />
             </div>
           ))}
+          {/* Load more trigger */}
+          {hasMoreItems && (
+            <div ref={loadMoreTriggerRef} className="flex justify-center py-4">
+              <div className="text-sm text-emperor-muted">
+                Loading more bookmarks...
+              </div>
+            </div>
+          )}
         </div>
-      </SortableContext>
-
-      {/* Ghost placeholder when dragging + reordering is allowed */}
-      {activeDragId && canReorder && viewMode !== "grid" && (
-        <div className="h-1 bg-emperor-surfaceStrong rounded-card opacity-40 mt-2" />
       )}
+
+
     </div>
   );
 }
+

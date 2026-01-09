@@ -8,6 +8,7 @@ interface ImportExportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onImport: (bookmarks: RichBookmark[]) => Promise<void>;
+  onImportBookmarks: (bookmarks: RichBookmark[], onProgress?: (progress: { current: number; total: number; currentItem?: string }) => void, onCancel?: () => boolean) => Promise<void>;
   bookmarks: RichBookmark[];
   books: Book[];
 }
@@ -21,6 +22,7 @@ export default function ImportExportModal({
   isOpen,
   onClose,
   onImport,
+  onImportBookmarks,
   bookmarks,
   books
 }: ImportExportModalProps) {
@@ -29,7 +31,10 @@ export default function ImportExportModal({
   const [exportFormat, setExportFormat] = useState<'html' | 'json' | 'csv' | 'markdown'>('html');
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState<ImportProgress | null>(null);
+  const [importProgress, setImportProgress] = useState<{ current: number; total: number; currentItem?: string } | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [cancelImport, setCancelImport] = useState<(() => void) | null>(null);
   const [exportOptions, setExportOptions] = useState<ExportOptions>({
     format: 'html',
     includeTags: true,
@@ -42,18 +47,44 @@ export default function ImportExportModal({
 
   if (!isOpen) return null;
 
-  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (file) {
+      setSelectedFile(file);
+      setProgress(null);
+      setImportResult(null);
+    }
+  };
+
+  const handleImportSubmit = async () => {
+    if (!selectedFile) return;
 
     setIsProcessing(true);
     setProgress(null);
     setImportResult(null);
+    setImportProgress(null);
+
+    // Set up cancel callback
+    let cancelled = false;
+    const cancelCallback = () => cancelled;
+    setCancelImport(() => () => { cancelled = true; });
 
     try {
-      const text = await file.text();
+      const text = await selectedFile.text();
+
+      // Phase 1: Parsing
+      setImportProgress({ current: 0, total: 1, currentItem: 'Parsing bookmark file...' });
+
       const importer = new EnhancedBookmarkImporter({
-        onProgress: setProgress,
+        onProgress: (parseProgress) => {
+          if (!cancelled) {
+            setImportProgress({
+              current: 0,
+              total: 1,
+              currentItem: `Parsing bookmarks... (${parseProgress.processed}/${parseProgress.total})`
+            });
+          }
+        },
         detectDuplicates: true,
         skipInvalid: true
       });
@@ -62,7 +93,9 @@ export default function ImportExportModal({
 
       switch (importFormat) {
         case 'html':
+          console.log('🔍 IMPORT DEBUG: About to call importer.importFromHtml with text length:', text.length);
           result = await importer.importFromHtml(text);
+          console.log('🔍 IMPORT DEBUG: importFromHtml returned:', result);
           break;
         case 'chrome':
           result = await importer.importFromChromeJson(text);
@@ -74,7 +107,14 @@ export default function ImportExportModal({
           throw new Error(`Unsupported import format: ${importFormat}`);
       }
 
-      setImportResult(result);
+      if (cancelled) {
+        console.log('Import was cancelled');
+        return;
+      }
+
+      // Phase 2: Import with progress
+      const totalBookmarks = result.bookmarks.length;
+      setImportProgress({ current: 0, total: totalBookmarks, currentItem: 'Preparing import...' });
 
       // Convert to RichBookmark format
       const richBookmarks: RichBookmark[] = result.bookmarks.map(b => ({
@@ -83,13 +123,37 @@ export default function ImportExportModal({
         bookId: b.bookId || null
       }));
 
-      await onImport(richBookmarks);
+      await onImportBookmarks(
+        richBookmarks,
+        (progress) => {
+          if (!cancelled) {
+            setImportProgress({
+              current: progress.current,
+              total: totalBookmarks,
+              currentItem: progress.currentItem || `Importing bookmarks... (${progress.current}/${progress.total})`
+            });
+          }
+        },
+        cancelCallback
+      );
+
+      if (!cancelled) {
+        setImportProgress({ current: totalBookmarks, total: totalBookmarks, currentItem: 'Import complete!' });
+        setImportResult(result);
+        // Auto-close modal after successful import
+        setTimeout(() => {
+          handleClose();
+        }, 1500);
+      }
 
     } catch (error) {
-      console.error('Import failed:', error);
-      alert(`Import failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      if (!cancelled) {
+        console.error('Import failed:', error);
+        alert(`Import failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     } finally {
       setIsProcessing(false);
+      setCancelImport(null);
     }
   };
 
@@ -126,8 +190,10 @@ export default function ImportExportModal({
 
   const resetModal = () => {
     setProgress(null);
+    setImportProgress(null);
     setImportResult(null);
     setIsProcessing(false);
+    setSelectedFile(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -221,21 +287,32 @@ export default function ImportExportModal({
               </div>
 
               {/* Progress */}
-              {progress && (
+              {importProgress && (
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span>Importing...</span>
-                    <span>{progress.processed}/{progress.total}</span>
+                    <span>{isProcessing ? 'Importing...' : 'Complete'}</span>
+                    <span>{importProgress.current}/{importProgress.total}</span>
                   </div>
                   <div className="w-full bg-emperor-border rounded-full h-2">
                     <div
                       className="bg-emperor-accent h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${(progress.processed / progress.total) * 100}%` }}
+                      style={{ width: `${(importProgress.current / importProgress.total) * 100}%` }}
                     ></div>
                   </div>
-                  {progress.currentItem && (
+                  {importProgress.currentItem && (
                     <div className="text-xs text-emperor-muted truncate">
-                      {progress.currentItem}
+                      {importProgress.currentItem}
+                    </div>
+                  )}
+                  {cancelImport && (
+                    <div className="flex justify-center mt-2">
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        onClick={() => cancelImport()}
+                      >
+                        Cancel Import
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -334,6 +411,11 @@ export default function ImportExportModal({
           <Button variant="subtle" onClick={handleClose}>
             Cancel
           </Button>
+          {mode === 'import' && selectedFile && (
+            <Button onClick={handleImportSubmit} disabled={isProcessing}>
+              {isProcessing ? 'Importing...' : `Import ${selectedFile.name}`}
+            </Button>
+          )}
           {mode === 'export' && (
             <Button onClick={handleExport} disabled={bookmarks.length === 0}>
               Export {bookmarks.length} Bookmarks

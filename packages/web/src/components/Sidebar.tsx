@@ -70,6 +70,8 @@ type Props = {
 
   /** Imports bookmarks from an HTML file */
   onImport: (e: any) => void;
+  /** Imports processed bookmark data */
+  onImportBookmarks: (bookmarks: RichBookmark[]) => Promise<void>;
   /** Exports the entire library as JSON */
   onExport: () => void;
 
@@ -110,6 +112,7 @@ export default function Sidebar({
   onMoveBook,
   onBookmarkDrop,
   onImport,
+  onImportBookmarks,
   onExport,
   onOpenSettings,
   onOpenBookManager,
@@ -585,6 +588,7 @@ export default function Sidebar({
         isOpen={showImportExport}
         onClose={() => setShowImportExport(false)}
         onImport={handleImport}
+        onImportBookmarks={onImportBookmarks}
         bookmarks={bookmarks}
         books={books}
       />

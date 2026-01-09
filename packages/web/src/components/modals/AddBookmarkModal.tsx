@@ -29,6 +29,9 @@ type Props = {
   /** All books (for the dropdown) */
   books: Book[];
 
+  /** Currently active book ID (for default selection) */
+  activeBookId: string | null;
+
   /** Creates a new bookmark */
   onAddPage: (title: string, url: string, description: string | null, bookId: string | null, tags: string[]) => void;
 
@@ -41,6 +44,7 @@ type Props = {
 
 export default function AddBookmarkModal({
   books,
+  activeBookId,
   onAddPage,
   onCreateBook,
   onClose
@@ -49,7 +53,7 @@ export default function AddBookmarkModal({
   const [url, setUrl] = useState("");
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState<string[]>([]);
-  const [bookId, setBookId] = useState<string | null>(null);
+  const [bookId, setBookId] = useState<string | null>(activeBookId);
   const [newBookName, setNewBookName] = useState("");
 
   /** Creates a new root‑level book */

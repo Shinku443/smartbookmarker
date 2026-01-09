@@ -34,6 +34,22 @@ export type SummaryLength = 'short' | 'medium' | 'long';
 export type AnalysisDepth = 'basic' | 'detailed';
 
 /**
+ * View Mode Options
+ */
+export type ViewMode = 'card' | 'list' | 'grid';
+
+/**
+ * Info Visibility Options
+ */
+export type InfoVisibility = {
+  favicon: boolean;
+  url: boolean;
+  tags: boolean;
+  date: boolean;
+  book: boolean;
+};
+
+/**
  * Comprehensive App Settings
  */
 export type AppSettings = {
@@ -41,7 +57,9 @@ export type AppSettings = {
   defaultSortMethod: SortMethod;
   defaultSortDirection: SortDirection;
 
-  // Display
+  // Display & Layout
+  viewMode: ViewMode;
+  infoVisibility: InfoVisibility;
   compactMode: boolean;
   showThumbnails: boolean;
 
@@ -71,6 +89,9 @@ export type AppSettings = {
   analysisDepth: AnalysisDepth;
   autoTagging: boolean;
   summaryLength: SummaryLength;
+
+  // Developer/Debug
+  verboseDebug: boolean;
 };
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
@@ -78,7 +99,15 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   defaultSortMethod: 'manual',
   defaultSortDirection: 'desc',
 
-  // Display
+  // Display & Layout
+  viewMode: 'card',
+  infoVisibility: {
+    favicon: true,
+    url: true,
+    tags: true,
+    date: true,
+    book: true
+  },
   compactMode: false,
   showThumbnails: true,
 
@@ -107,7 +136,10 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   // AI Enhancements
   analysisDepth: 'basic',
   autoTagging: true,
-  summaryLength: 'medium'
+  summaryLength: 'medium',
+
+  // Developer/Debug
+  verboseDebug: false
 };
 
 /**

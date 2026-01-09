@@ -116,7 +116,10 @@ export default function SettingsScreen({
   }
 
   function handleVisibilityChange(key: keyof InfoVisibility, value: boolean) {
-    setInfoVisibility({ ...infoVisibility, [key]: value });
+    console.log('[SETTINGS] Info visibility changed:', key, '->', value);
+    const newVisibility = { ...infoVisibility, [key]: value };
+    console.log('[SETTINGS] New info visibility:', newVisibility);
+    setInfoVisibility(newVisibility);
   }
 
   return (
@@ -805,6 +808,32 @@ export default function SettingsScreen({
                 );
               })}
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Developer/Debug section */}
+      <section>
+        <h2 className="text-lg font-semibold mb-2">Developer/Debug</h2>
+        <p className="text-sm text-emperor-muted mb-4">
+          Advanced debugging and development options.
+        </p>
+
+        <div className="flex flex-col gap-4">
+          {/* Verbose debug logging */}
+          <div>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={appSettings.verboseDebug}
+                onChange={(e) => updateAppSetting('verboseDebug', e.target.checked)}
+                className="w-4 h-4 text-emperor-accent bg-emperor-surface border-emperor-border rounded focus:ring-emperor-accent focus:ring-2"
+              />
+              <span className="text-sm font-medium">Verbose debug logging</span>
+            </label>
+            <p className="text-xs text-emperor-muted mt-1">
+              Enable detailed logging for import/export operations and debugging.
+            </p>
           </div>
         </div>
       </section>
