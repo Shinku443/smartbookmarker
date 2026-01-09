@@ -721,65 +721,47 @@ export default function BookmarkCard({
                 </div>
               </div>
             ) : (
-              <div className="flex gap-3">
-                {faviconElement}
-                <div className="flex-1">
-                  <a
-                    href={b.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-semibold hover:underline"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {b.title}
-                  </a>
-                  {urlElement}
-                  {bookElement}
+              <div className="flex-1">
+                <a
+                  href={b.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold hover:underline"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {b.title}
+                </a>
+                {urlElement}
+                {bookElement}
 
-                  {/* Description (legacy) */}
-                  {b.description && (
-                    <div className="text-sm text-emperor-muted mt-1 italic">
-                      {b.description}
-                    </div>
-                  )}
+                {/* Extracted content preview */}
+                {b.extractedText && (
+                  <div className="text-sm text-emperor-muted mt-2 p-2 bg-emperor-surface rounded border-l-2 border-emperor-accent/30">
+                    {b.extractedText}
+                  </div>
+                )}
 
-                  {/* Extracted content preview */}
-                  {b.extractedText && (
-                    <div className="text-sm text-emperor-muted mt-2 p-2 bg-emperor-surface rounded border-l-2 border-emperor-accent/30">
-                      {b.extractedText}
-                    </div>
-                  )}
+                {/* User-added description */}
+                {b.description && (
+                  <div className="text-sm text-emperor-muted mt-2 italic">
+                    {b.description}
+                  </div>
+                )}
 
-                  {/* Screenshot thumbnail */}
-                  {b.screenshotUrl && (
-                    <div className="mt-2">
-                      <img
-                        src={b.screenshotUrl}
-                        alt="Page preview"
-                        className="w-full h-24 object-cover rounded border border-emperor-border opacity-70 hover:opacity-100 transition"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          window.open(b.url, '_blank');
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  {book && (
-                    <div className="text-xs text-emperor-muted mt-1">
-                      In{" "}
-                      <button
-                        className="text-emperor-accent font-medium hover:underline"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onActivateBook?.(book.id);
-                        }}
-                      >
-                        {book.name}
-                      </button>
-                    </div>
-                  )}
-                </div>
+                {/* Screenshot thumbnail */}
+                {b.screenshotUrl && (
+                  <div className="mt-2">
+                    <img
+                      src={b.screenshotUrl}
+                      alt="Page preview"
+                      className="w-full h-24 object-cover rounded border border-emperor-border opacity-70 hover:opacity-100 transition"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        window.open(b.url, '_blank');
+                      }}
+                    />
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -7,12 +7,15 @@ import { PageContentService } from "./pageContentService";
 const prisma = new PrismaClient();
 
 export const pageService = {
-  getAll(bookId: string) {
-    return prisma.page.findMany({
-      where: { bookId },
+  getAll(bookId?: string) {
+    console.log(`[PAGE READ] Fetching ${bookId ? `pages for book ${bookId}` : 'all pages'}`);
+    const result = prisma.page.findMany({
+      where: bookId ? { bookId } : {},
       orderBy: { order: "asc" },
       include: { tags: true },
     });
+    result.then(pages => console.log(`[PAGE READ] Found ${pages.length} pages`));
+    return result;
   },
 
   get(id: string) {
@@ -38,6 +41,8 @@ export const pageService = {
     source?: string;
     rawMetadata?: any;
   }) {
+    console.log(`[PAGE CREATE] Creating page "${data.title}" ${data.url ? `for URL: ${data.url}` : ''} ${data.bookId ? `in book ${data.bookId}` : 'at root'}`);
+
     let enhancedData = { ...data };
 
     // If URL is provided, extract content using both services for maximum compatibility
@@ -54,11 +59,11 @@ export const pageService = {
           extractedText: extractedContent.extractedText,
           metaDescription: extractedContent.metaDescription,
           source: 'imported' as const,
-          rawMetadata: {
+          rawMetadata: JSON.stringify({
             extractedAt: new Date().toISOString(),
             originalUrl: data.url,
             ...extractedContent
-          }
+          })
         };
       } catch (error) {
         console.error('Advanced content extraction failed, trying basic scraping:', error);
@@ -133,11 +138,11 @@ export const pageService = {
           extractedText: extractedContent.extractedText,
           metaDescription: extractedContent.metaDescription,
           source: 'imported',
-          rawMetadata: {
+          rawMetadata: JSON.stringify({
             extractedAt: new Date().toISOString(),
             originalUrl: url,
             ...extractedContent
-          }
+          })
         },
       });
 
@@ -172,7 +177,7 @@ export const pageService = {
 
   async delete(id: string) {
     const page = await prisma.page.delete({ where: { id } });
-    await syncService.record("page", page.id);
+    await syncService.recordDeletion("page", page.id);
     return serializeBigInts(page);
   },
 };

@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
+import { TagInput } from "../ui/TagInput";
 import type { Book } from "../../models/Book";
 import type { RichBookmark } from "../../models/RichBookmark";
+import type { BookmarkTag } from "@smart/core";
 
 /**
  * EditBookmarkModal.tsx
@@ -49,6 +51,8 @@ export default function EditBookmarkModal({
 }: Props) {
   const [title, setTitle] = useState(bookmark.title);
   const [url, setUrl] = useState(bookmark.url);
+  const [description, setDescription] = useState(bookmark.description || "");
+  const [tags, setTags] = useState<string[]>(bookmark.tags?.map(t => t.label) || []);
   const [bookId, setBookId] = useState<string | null>(bookmark.bookId ?? null);
   const [newBookName, setNewBookName] = useState("");
 
@@ -62,10 +66,17 @@ export default function EditBookmarkModal({
   }
 
   function handleSave() {
+    const bookmarkTags: BookmarkTag[] = tags.map(label => ({
+      label,
+      type: "user" as const
+    }));
+
     onSave({
       ...bookmark,
       title: title.trim(),
       url: url.trim(),
+      description: description.trim() || undefined,
+      tags: bookmarkTags,
       bookId
     });
     onClose();
@@ -93,6 +104,28 @@ export default function EditBookmarkModal({
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://example.com"
+          />
+        </div>
+
+        {/* Description */}
+        <div className="mb-4">
+          <label className="text-sm text-emperor-muted">Description</label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Add your own description..."
+            className="w-full mt-1 px-2 py-1 rounded-card bg-emperor-surface border border-emperor-border text-sm resize-none"
+            rows={3}
+          />
+        </div>
+
+        {/* Tags */}
+        <div className="mb-4">
+          <label className="text-sm text-emperor-muted">Tags</label>
+          <TagInput
+            value={tags}
+            onChange={setTags}
+            placeholder="Add or edit tags"
           />
         </div>
 

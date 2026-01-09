@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Card } from "./ui/Card";
 import { Input } from "./ui/Input";
 import { Button } from "./ui/Button";
+import { TagInput } from "./ui/TagInput";
 
 /**
  * AddBookmarkForm.tsx
@@ -36,22 +37,15 @@ export default function AddBookmarkForm({ onAdd, onClose }: Props) {
   // Local state for form inputs
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
-  const [tagString, setTagString] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
 
   /**
    * handleAdd
    * ----------
-   * Processes the form submission by parsing tags and calling the onAdd callback.
-   * Tags are expected as a semicolon-separated string, which is split and cleaned.
+   * Processes the form submission by calling the onAdd callback with current tags.
    * After adding the bookmark, the modal is closed.
    */
   function handleAdd() {
-    // Parse tags from semicolon-separated string
-    const tags = tagString
-      .split(";")
-      .map((s) => s.trim()) // Remove whitespace
-      .filter(Boolean); // Remove empty strings
-
     // Add the bookmark and close the form
     onAdd(title, url, tags);
     onClose();
@@ -85,15 +79,15 @@ export default function AddBookmarkForm({ onAdd, onClose }: Props) {
             />
           </div>
 
-          {/* Tags input field - semicolon separated */}
+          {/* Tags input field */}
           <div>
             <label className="block text-sm font-medium mb-1">
-              Tags (semicolon separated)
+              Tags
             </label>
-            <Input
-              value={tagString}
-              onChange={(e) => setTagString(e.target.value)}
-              placeholder="work; research; ai"
+            <TagInput
+              value={tags}
+              onChange={setTags}
+              placeholder="Add tags (comma, semicolon, or space separated)"
             />
           </div>
         </div>

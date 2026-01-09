@@ -18,6 +18,7 @@ import BookmarkList from "./components/BookmarkList";
 import PinnedBookmarks from "./components/PinnedBookmarks";
 import EditBookmarkModal from "./components/modals/EditBookmarkModal";
 import AddBookmarkModal from "./components/modals/AddBookmarkModal";
+import RetagModal from "./components/modals/RetagModal";
 import SettingsScreen, { type ViewMode, type InfoVisibility } from "./components/SettingsScreen";
 import BookManagerModal from "./components/modals/BookManagerModal";
 import Breadcrumb from "./components/Breadcrumb";
@@ -137,7 +138,7 @@ export default function App() {
    * addBookmarkWithDescription
    * --------------------------
    * UI‑facing signature for modals:
-   *   (title: string, url: string, description: string | null, bookId: string | null) => void
+   *   (title: string, url: string, description: string | null, bookId: string | null, tags: string[]) => void
    *
    * This matches the modal interfaces.
    */
@@ -145,9 +146,10 @@ export default function App() {
     title: string,
     url: string,
     description: string | null,
-    bookId: string | null
+    bookId: string | null,
+    tags: string[] = []
   ): Promise<void> {
-    await addBookmark(title, url, bookId);
+    await addBookmark(title, url, bookId, tags);
   }
 
   /**
@@ -192,6 +194,9 @@ export default function App() {
     book: true
   });
   const [editingBookmark, setEditingBookmark] = useState<RichBookmark | null>(
+    null
+  );
+  const [retaggingBookmark, setRetaggingBookmark] = useState<RichBookmark | null>(
     null
   );
   const [showAddModal, setShowAddModal] = useState(false);
@@ -372,17 +377,8 @@ export default function App() {
    * handleRetag
    * -----------
    */
-  function handleRetag(b: RichBookmark, tag?: string) {
-    const newTag = tag ?? prompt("Tag to apply?");
-    if (!newTag) return;
-
-    const updated: RichBookmark = {
-      ...b,
-      tags: [...(b.tags ?? []), { label: newTag, type: "user" }],
-      updatedAt: Date.now()
-    };
-
-    retag(updated);
+  function handleRetag(b: RichBookmark) {
+    setRetaggingBookmark(b);
   }
 
   /**
@@ -656,7 +652,7 @@ export default function App() {
   }, [
     selectedIds, bookmarks, keyboardNavigationIndex, sortedByOrder,
     deleteBookmark, togglePin, showAddModal, showBookManager,
-    editingBookmark, showSettings
+    editingBookmark, retaggingBookmark, showSettings
   ]);
 
   // Set up keyboard event listeners
@@ -831,9 +827,17 @@ export default function App() {
           books={booksWithCounts}
           onReorderBooks={reorderBooks}
           onRenameBook={renameBook}
-          onDeleteBook={deleteBook}
+          onDeleteBook={handleDeleteBook}
           onCreateBook={addBook}
           onClose={() => setShowBookManager(false)}
+        />
+      )}
+
+      {retaggingBookmark && (
+        <RetagModal
+          bookmark={retaggingBookmark}
+          onSave={updateBookmark}
+          onClose={() => setRetaggingBookmark(null)}
         />
       )}
     </DndContext>
