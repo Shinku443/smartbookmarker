@@ -28,6 +28,31 @@ export const syncService = {
     return serializeBigInts(row);
   },
 
+  async recordDeletion(entityType: string, entityId: string) {
+    const existing = await prisma.syncMetadata.findUnique({
+      where: { entityId },
+    });
+
+    let row;
+
+    if (existing) {
+      row = await prisma.syncMetadata.update({
+        where: { entityId },
+        data: { version: existing.version + 1, deleted: true },
+      });
+    } else {
+      row = await prisma.syncMetadata.create({
+        data: {
+          entityType,
+          entityId,
+          deleted: true,
+        },
+      });
+    }
+
+    return serializeBigInts(row);
+  },
+
   async getSince(since?: Date) {
     const rows = await prisma.syncMetadata.findMany({
       where: since ? { updatedAt: { gt: since } } : {},

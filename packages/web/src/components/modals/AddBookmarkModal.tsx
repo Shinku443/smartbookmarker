@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
+import { TagInput } from "../ui/TagInput";
 import type { Book } from "../../models/Book";
 
 /**
@@ -29,7 +30,7 @@ type Props = {
   books: Book[];
 
   /** Creates a new bookmark */
-  onAddPage: (title: string, url: string, description: string | null, bookId: string | null) => void;
+  onAddPage: (title: string, url: string, description: string | null, bookId: string | null, tags: string[]) => void;
 
   /** Creates a new book (root‑level only in this modal) */
   onCreateBook: (parentId: string | null, name: string) => void;
@@ -47,6 +48,7 @@ export default function AddBookmarkModal({
   const [title, setTitle] = useState("");
   const [url, setUrl] = useState("");
   const [description, setDescription] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
   const [bookId, setBookId] = useState<string | null>(null);
   const [newBookName, setNewBookName] = useState("");
 
@@ -64,7 +66,7 @@ export default function AddBookmarkModal({
   /** Creates the bookmark */
   function handleSubmit() {
     if (!title.trim() || !url.trim()) return;
-    onAddPage(title.trim(), url.trim(), description.trim() || null, bookId);
+    onAddPage(title.trim(), url.trim(), description.trim() || null, bookId, tags);
     onClose();
   }
 
@@ -90,6 +92,16 @@ export default function AddBookmarkModal({
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="https://example.com"
+          />
+        </div>
+
+        {/* Tags */}
+        <div className="mb-4">
+          <label className="text-sm text-emperor-muted">Tags</label>
+          <TagInput
+            value={tags}
+            onChange={setTags}
+            placeholder="Add tags (comma, semicolon, or space separated)"
           />
         </div>
 

@@ -1,5 +1,5 @@
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -44,7 +44,7 @@ model Page {
 
   // Metadata
   source String @default("manual") // manual, imported
-  rawMetadata Json?
+  rawMetadata String?
 
   order     BigInt
   pinned    Boolean  @default(false)
@@ -75,6 +75,7 @@ model SyncMetadata {
   entityType String
   entityId   String   @unique
   version    Int      @default(1)
+  deleted    Boolean  @default(false)
   updatedAt  DateTime @updatedAt
 }
 

@@ -159,7 +159,7 @@ export function useBookmarks() {
 
   /**
    * addBook
-   * --------
+   * ---------
    * Creates a new book with the given name.
    * Generates a unique ID and initializes with empty order array.
    *
@@ -168,6 +168,8 @@ export function useBookmarks() {
    * @returns The newly created book
    */
   function addBook(name: string, parentBookId: string | null = null): Book {
+    console.log(`[BOOK CREATE] Creating book "${name}" ${parentBookId ? `under parent ${parentBookId}` : 'at root level'}`);
+
     const now = Date.now();
     const newBook: Book = {
       id: crypto.randomUUID(),
@@ -180,6 +182,8 @@ export function useBookmarks() {
 
     const nextBooks = [...books, newBook];
     persistAll(bookmarks, nextBooks);
+
+    console.log(`[BOOK CREATE] Book created with ID: ${newBook.id}`);
     return newBook;
   }
 
@@ -192,11 +196,13 @@ export function useBookmarks() {
    * @param name - New name for the book
    */
   function renameBook(id: string, name: string) {
+    console.log(`[BOOK UPDATE] Renaming book ${id} to "${name}"`);
     const now = Date.now();
     const nextBooks = books.map((b) =>
       b.id === id ? { ...b, name, updatedAt: now } : b
     );
     persistAll(bookmarks, nextBooks);
+    console.log(`[BOOK UPDATE] Book ${id} renamed successfully`);
   }
 
   /**
@@ -581,6 +587,10 @@ export function useBookmarks() {
    * @param id - Bookmark ID to delete
    */
   function deleteBookmark(id: string) {
+    console.log(`[BOOKMARK DELETE] Deleting bookmark ${id}`);
+    const bookmark = bookmarks.find(b => b.id === id);
+    console.log(`[BOOKMARK DELETE] Bookmark details: "${bookmark?.title}" (${bookmark?.url})`);
+
     const nextBookmarks = bookmarks.filter((b) => b.id !== id);
 
     const nextRootOrder = rootOrder.filter((x) => x !== id);
@@ -591,6 +601,7 @@ export function useBookmarks() {
     }));
 
     persistAll(nextBookmarks, nextBooks, nextRootOrder, nextPinnedOrder);
+    console.log(`[BOOKMARK DELETE] Bookmark ${id} deleted successfully`);
   }
 
   /**
@@ -749,14 +760,57 @@ export function useBookmarks() {
       b.createdAt > lastSyncTime || b.updatedAt > lastSyncTime
     );
 
-    if (changedBookmarks.length === 0 && changedBooks.length === 0) {
+    // Get previously synced items to detect deletions
+    const lastSyncedData = localStorage.getItem("lastSyncedData");
+    let lastSyncedBookmarks: string[] = [];
+    let lastSyncedBooks: string[] = [];
+
+    if (lastSyncedData) {
+      try {
+        const parsed = JSON.parse(lastSyncedData);
+        lastSyncedBookmarks = parsed.bookmarks || [];
+        lastSyncedBooks = parsed.books || [];
+      } catch (e) {
+        // Ignore parsing errors
+      }
+    }
+
+    // Detect deletions: items that existed before but don't exist now
+    const currentBookmarkIds = new Set(bookmarks.map(b => b.id));
+    const deletedBookmarkIds = lastSyncedBookmarks.filter(id => !currentBookmarkIds.has(id));
+
+    const currentBookIds = new Set(books.map(b => b.id));
+    const deletedBookIds = lastSyncedBooks.filter(id => !currentBookIds.has(id));
+
+    // Push deletions to server
+    for (const bookmarkId of deletedBookmarkIds) {
+      try {
+        await syncClient.pushDeletion("page", bookmarkId);
+        syncLog(`Pushed deletion for bookmark: ${bookmarkId}`);
+      } catch (error) {
+        syncLog(`Failed to push deletion for bookmark ${bookmarkId}:`, error);
+      }
+    }
+
+    for (const bookId of deletedBookIds) {
+      try {
+        await syncClient.pushDeletion("book", bookId);
+        syncLog(`Pushed deletion for book: ${bookId}`);
+      } catch (error) {
+        syncLog(`Failed to push deletion for book ${bookId}:`, error);
+      }
+    }
+
+    if (changedBookmarks.length === 0 && changedBooks.length === 0 && deletedBookmarkIds.length === 0 && deletedBookIds.length === 0) {
       syncLog("No local changes to push");
       return;
     }
 
     syncLog("Pushing local changes:", {
       bookmarks: changedBookmarks.length,
-      books: changedBooks.length
+      books: changedBooks.length,
+      deletedBookmarks: deletedBookmarkIds.length,
+      deletedBooks: deletedBookIds.length
     });
 
     // Convert to push payload format
@@ -788,6 +842,13 @@ export function useBookmarks() {
     if (!success) {
       throw new Error("Failed to push local changes");
     }
+
+    // Update last synced data
+    localStorage.setItem("lastSyncedData", JSON.stringify({
+      bookmarks: bookmarks.map(b => b.id),
+      books: books.map(b => b.id),
+      syncedAt: new Date().toISOString()
+    }));
 
     syncLog("Local changes pushed successfully");
   }
@@ -898,6 +959,20 @@ function mergeOfflineFirst<T extends { id: string }>(existing: T[], incoming: T[
 
 // Map backend Page to your RichBookmark model
 function mapPageToRichBookmark(page: any): RichBookmark {
+  let tags: BookmarkTag[] = [];
+  try {
+    if (page.tags && Array.isArray(page.tags)) {
+      tags = page.tags
+        .filter((pt: any) => pt && pt.tag && pt.tag.name)
+        .map((pt: any) => ({
+          label: pt.tag.name,
+          type: "auto" as BookmarkTag["type"],
+        }));
+    }
+  } catch (error) {
+    console.warn(`Failed to parse tags for page ${page.id}:`, error);
+  }
+
   return {
     id: page.id,
     bookId: page.bookId ?? null,
@@ -906,11 +981,7 @@ function mapPageToRichBookmark(page: any): RichBookmark {
     createdAt: new Date(page.createdAt).getTime(),
     updatedAt: new Date(page.updatedAt).getTime(),
     faviconUrl: "", // Server doesn't store this, will be preserved from local
-    tags:
-      page.tags?.map((pt: any) => ({
-        label: pt.tag.name,
-        type: "auto" as BookmarkTag["type"],
-      })) ?? [],
+    tags,
     source: "imported", // Will be preserved from local if exists
     pinned: page.pinned ?? false,
   };

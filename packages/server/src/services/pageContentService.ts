@@ -124,9 +124,19 @@ export class PageContentService {
   }
 
   static async generateScreenshot(url: string): Promise<string | null> {
+    let page: any = null;
     try {
       const browser = await this.getBrowser();
-      const page = await browser.newPage();
+      if (!browser) {
+        console.error('Browser not available for screenshot');
+        return null;
+      }
+
+      page = await browser.newPage();
+      if (!page) {
+        console.error('Failed to create page for screenshot');
+        return null;
+      }
 
       await page.setViewport({ width: 1280, height: 720 });
       await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
@@ -140,8 +150,6 @@ export class PageContentService {
         fullPage: false
       });
 
-      await page.close();
-
       // In a real implementation, you'd upload this to a storage service
       // For now, we'll return a data URL
       const base64 = screenshot.toString('base64');
@@ -150,6 +158,14 @@ export class PageContentService {
     } catch (error) {
       console.error('Error generating screenshot:', error);
       return null;
+    } finally {
+      if (page) {
+        try {
+          await page.close();
+        } catch (closeError) {
+          console.error('Error closing page:', closeError);
+        }
+      }
     }
   }
 
