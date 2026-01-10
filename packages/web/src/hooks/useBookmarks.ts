@@ -135,6 +135,14 @@ export function useBookmarks() {
       rootOrder: nextRootOrder,
       pinnedOrder: nextPinnedOrder
     });
+
+    // Update lastSyncedData to reflect current state for proper sync behavior
+    // This ensures that subsequent syncs know what we currently have locally
+    localStorage.setItem("lastSyncedData", JSON.stringify({
+      bookmarks: nextBookmarks.map(b => b.id),
+      books: nextBooks.map(b => b.id),
+      syncedAt: new Date().toISOString()
+    }));
   }
 
   /**
@@ -872,9 +880,25 @@ export function useBookmarks() {
     syncLog("Merging books:", validatedServerBooks.length);
     syncLog("Merging bookmarks:", incomingBookmarks.length);
 
+    // Get previously synced items to avoid re-adding locally deleted items
+    const lastSyncedData = localStorage.getItem("lastSyncedData");
+    let lastSyncedBookmarkIds: string[] = [];
+    let lastSyncedBookIds: string[] = [];
+
+    if (lastSyncedData) {
+      try {
+        const parsed = JSON.parse(lastSyncedData);
+        lastSyncedBookmarkIds = parsed.bookmarks || [];
+        lastSyncedBookIds = parsed.books || [];
+      } catch (e) {
+        // Ignore parsing errors
+      }
+    }
+
     // Offline-first merge: only add new items from server, never overwrite local
-    const nextBooks = mergeOfflineFirst(books, validatedServerBooks);
-    const nextBookmarks = mergeOfflineFirst(bookmarks, incomingBookmarks);
+    // But don't re-add items that were previously synced and then deleted locally
+    const nextBooks = mergeOfflineFirstWithDeletionAwareness(books, validatedServerBooks, lastSyncedBookIds);
+    const nextBookmarks = mergeOfflineFirstWithDeletionAwareness(bookmarks, incomingBookmarks, lastSyncedBookmarkIds);
 
     syncLog("Merged state:", {
       books: nextBooks.length,
@@ -958,6 +982,37 @@ function mergeOfflineFirst<T extends { id: string }>(existing: T[], incoming: T[
       }
     }
     // If item exists locally, we keep the local version (offline-first)
+  }
+
+  return Array.from(map.values());
+}
+
+function mergeOfflineFirstWithDeletionAwareness<T extends { id: string }>(existing: T[], incoming: T[], lastSyncedIds: string[]): T[] {
+  const map = new Map(existing.map((e) => [e.id, e]));
+  const existingIds = new Set(existing.map(e => e.id));
+  const lastSyncedIdsSet = new Set(lastSyncedIds);
+
+  for (const item of incoming) {
+    // Only add items that don't exist locally AND weren't previously synced (to avoid re-adding deleted items)
+    if (!map.has(item.id) && !lastSyncedIdsSet.has(item.id)) {
+      // This is a truly new item from the server that we haven't seen before
+      // For new items, map fields if needed
+      if ('title' in item && !('name' in item)) {
+        // Server book -> client book
+        const clientItem = {
+          ...item,
+          name: (item as any).title,
+          icon: (item as any).emoji,
+        } as any;
+        delete clientItem.title;
+        delete clientItem.emoji;
+        map.set(item.id, clientItem as T);
+      } else {
+        map.set(item.id, item);
+      }
+    }
+    // If item exists locally, we keep the local version (offline-first)
+    // If item was previously synced but doesn't exist locally, it was deleted locally - don't re-add
   }
 
   return Array.from(map.values());

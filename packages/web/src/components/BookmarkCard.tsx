@@ -277,7 +277,6 @@ export default function BookmarkCard({
   const currentStatus = statusOptions.find(s => s.key === (b.status || 'active'));
 
   // Common elements based on visibility settings
-
   const faviconElement = infoVisibility.favicon && b.faviconUrl && (
     <img src={b.faviconUrl} className="w-5 h-5 mt-1 flex-shrink-0" />
   );

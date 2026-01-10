@@ -5,7 +5,7 @@ import type { PushPayload } from "./syncPayloadBuilder";
 export class SyncClient {
   private lastSyncAt: string | null;
 
-  constructor(private baseUrl: string = "http://localhost:4000") {
+  constructor(private baseUrl: string = "") {
     const stored = localStorage.getItem("lastSyncAt");
     if (stored) {
       const storedTime = new Date(stored).getTime();

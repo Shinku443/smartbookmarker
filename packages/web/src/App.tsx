@@ -19,6 +19,7 @@ import PinnedBookmarks from "./components/PinnedBookmarks";
 import EditBookmarkModal from "./components/modals/EditBookmarkModal";
 import AddBookmarkModal from "./components/modals/AddBookmarkModal";
 import RetagModal from "./components/modals/RetagModal";
+import MultiRetagModal from "./components/modals/MultiRetagModal";
 import SettingsScreen, { type ViewMode, type InfoVisibility } from "./components/SettingsScreen";
 import BookManagerModal from "./components/modals/BookManagerModal";
 import Breadcrumb from "./components/Breadcrumb";
@@ -34,6 +35,12 @@ import { useAISettings } from "./hooks/useAISettings";
 import { useAppSettings } from "./hooks/useAppSettings";
 import { sortBookmarks } from "./utils/bookmarkSorter";
 import { loadViewSettings, saveViewSettings } from "./storage/webStorage";
+import {
+  createBooksFromFolders,
+  processImportedBookmarks,
+  updateBookmarkOrders,
+  updateBooksWithNewOrders
+} from "./utils/importUtils";
 
 /**
  * App.tsx
@@ -195,6 +202,9 @@ export default function App() {
   const [retaggingBookmark, setRetaggingBookmark] = useState<RichBookmark | null>(
     null
   );
+  const [multiRetaggingBookmarks, setMultiRetaggingBookmarks] = useState<RichBookmark[] | null>(
+    null
+  );
   const [showAddModal, setShowAddModal] = useState(false);
   const [showBookManager, setShowBookManager] = useState(false);
 
@@ -246,8 +256,6 @@ export default function App() {
     return [...set];
   }, [bookmarks]);
 
-
-
   /**
    * handleActivateBook
    * ------------------
@@ -268,7 +276,9 @@ export default function App() {
    * Uses configurable sorting from app settings.
    */
   const sortedByOrder = useMemo(() => {
-    console.log('🔄 Recalculating sortedByOrder, bookmarks length:', bookmarks.length);
+    if (appSettings.verboseDebug) {
+      console.log('🔄 Recalculating sortedByOrder, bookmarks length:', bookmarks.length);
+    }
     const idToBookmark = new Map(bookmarks.map((b) => [b.id, b]));
     let result: RichBookmark[] = [];
 
@@ -355,206 +365,74 @@ export default function App() {
    * Handles importing processed bookmark data from ImportExportModal.
    * Creates books and bookmarks as needed with progress tracking and cancellation.
    */
-  async function handleImportBookmarks(importedBookmarks: RichBookmark[], folders?: any[], onProgress?: (progress: { current: number; total: number; currentItem?: string }) => void, onCancel?: () => boolean) {
-    const verboseDebug = appSettings.verboseDebug;
+  async function handleImportBookmarks(
+    importedBookmarks: RichBookmark[],
+    folders?: any[],
+    rootBookmarks?: RichBookmark[],
+    onProgress?: (progress: { current: number; total: number; currentItem?: string }) => void,
+    onCancel?: () => boolean
+  ) {
+    const logger = { log: appSettings.verboseDebug ? console.log : () => {} };
 
-    if (verboseDebug) {
-      console.log('🔍 VERBOSE DEBUG: Starting bookmark import');
-      console.log('🔍 VERBOSE DEBUG: Total bookmarks to import:', importedBookmarks.length);
-      console.log('🔍 VERBOSE DEBUG: Sample bookmark data:', importedBookmarks.slice(0, 3));
-      console.log('🔍 VERBOSE DEBUG: Current books before import:', books.length);
-      console.log('🔍 VERBOSE DEBUG: Current bookmarks before import:', bookmarks.length);
+    logger.log('🔍 VERBOSE DEBUG: Starting bookmark import');
+    logger.log('🔍 VERBOSE DEBUG: Total bookmarks to import:', importedBookmarks.length);
+    logger.log('🔍 VERBOSE DEBUG: Current books before import:', books.length);
+    logger.log('🔍 VERBOSE DEBUG: Current bookmarks before import:', bookmarks.length);
+
+    // Check for cancellation early
+    if (onCancel?.()) {
+      logger.log('Import cancelled at start');
+      return;
     }
 
-    // Create a map to track folder ID -> folder name (for HTML imports)
-    const folderIdToName = new Map<string, string>();
-    if (folders) {
-      for (const folder of folders) {
-        folderIdToName.set(folder.id, folder.name);
-      }
+    // Step 1: Create books from folders
+    const { newBooks, bookMap } = createBooksFromFolders(folders, books, rawAddBook, logger);
+
+    // Check for cancellation after book creation
+    if (onCancel?.()) {
+      logger.log('Import cancelled after book creation');
+      return;
     }
 
-    // Create a map to track book name -> book ID
-    const bookMap = new Map<string, string>();
+    // Step 2: Process and create bookmarks
+    const newBookmarks = processImportedBookmarks(
+      importedBookmarks,
+      folders,
+      rootBookmarks,
+      bookMap,
+      bookmarks,
+      internalComputeFavicon,
+      logger
+    );
 
-    // Collect unique book names that need to be created
-    const bookNamesToCreate = new Set<string>();
-    for (const bookmark of importedBookmarks) {
-      if (verboseDebug) {
-        console.log('🔍 VERBOSE DEBUG: Processing bookmark:', bookmark.title, 'bookId:', bookmark.bookId, 'type:', typeof bookmark.bookId);
-      }
+    // Step 3: Update bookmark orders and book assignments
+    const { nextBookmarks, nextRootOrder, bookUpdates } = updateBookmarkOrders(
+      newBookmarks,
+      bookmarks,
+      [...books, ...newBooks],
+      rootOrder
+    );
 
-      if (bookmark.bookId && typeof bookmark.bookId === 'string') {
-        // For HTML imports, bookmark.bookId is the folder ID, get the actual folder name
-        const folderName = folderIdToName.get(bookmark.bookId) || bookmark.bookId;
-        if (!books.find(b => b.name === folderName)) {
-          bookNamesToCreate.add(folderName);
-          if (verboseDebug) {
-            console.log('🔍 VERBOSE DEBUG: Will create book:', folderName);
-          }
-        } else {
-          if (verboseDebug) {
-            console.log('🔍 VERBOSE DEBUG: Book already exists:', folderName);
-          }
-        }
-      } else {
-        if (verboseDebug) {
-          console.log('🔍 VERBOSE DEBUG: No bookId for bookmark:', bookmark.title);
-        }
-      }
+    // Step 4: Update books with new bookmark orders
+    const nextBooks = updateBooksWithNewOrders([...books, ...newBooks], bookUpdates);
+
+    // Step 5: Persist all changes
+    logger.log('🔍 VERBOSE DEBUG: About to call persistAll');
+    logger.log('🔍 VERBOSE DEBUG: nextBookmarks count:', nextBookmarks.length);
+    logger.log('🔍 VERBOSE DEBUG: nextBooks count:', nextBooks.length);
+
+    try {
+      await internalPersistAll(nextBookmarks, nextBooks, nextRootOrder, pinnedOrder);
+
+      logger.log('🔍 VERBOSE DEBUG: persistAll completed successfully');
+      logger.log('🔍 VERBOSE DEBUG: Final bookmark count should be:', nextBookmarks.length);
+      logger.log('🔍 VERBOSE DEBUG: Final book count should be:', nextBooks.length);
+
+      console.log('Import completed:', newBookmarks.length, 'bookmarks imported');
+    } catch (error) {
+      console.error('Import failed:', error);
+      throw error;
     }
-
-    if (verboseDebug) {
-      console.log('🔍 VERBOSE DEBUG: Books to create:', Array.from(bookNamesToCreate));
-    }
-
-    // Create all needed books and collect them
-    const createdBooks: Book[] = [];
-    const newBooks = [...books];
-    for (const bookName of bookNamesToCreate) {
-      // Check if cancelled
-      if (onCancel?.()) {
-        console.log('Import cancelled during book creation');
-        return;
-      }
-
-      const newBook = rawAddBook(bookName, null);
-      createdBooks.push(newBook);
-      newBooks.push(newBook); // Add to the books array we'll use for persistAll
-      bookMap.set(bookName, newBook.id);
-      if (verboseDebug) {
-        console.log('🔍 VERBOSE DEBUG: Created book:', bookName, '->', newBook.id);
-      }
-    }
-
-    // Add existing books to the map
-    for (const book of books) {
-      if (!bookMap.has(book.name)) {
-        bookMap.set(book.name, book.id);
-      }
-    }
-
-    // Prepare new bookmarks with proper IDs and structure
-    const newBookmarks: RichBookmark[] = [];
-    const now = Date.now();
-
-    // Create bookmarks in batches to avoid overwhelming the state
-    const batchSize = 50;
-    for (let i = 0; i < importedBookmarks.length; i += batchSize) {
-      // Check if cancelled
-      if (onCancel?.()) {
-        console.log('Import cancelled during bookmark processing');
-        return;
-      }
-
-      const batch = importedBookmarks.slice(i, i + batchSize);
-
-      for (const bookmark of batch) {
-        try {
-          // Skip bookmarklets (javascript: URLs) as they're not actual web pages
-          if (bookmark.url && bookmark.url.startsWith('javascript:')) {
-            console.log('Skipping bookmarklet:', bookmark.title);
-            continue;
-          }
-
-          let targetBookId: string | null = null;
-
-          if (bookmark.bookId && typeof bookmark.bookId === 'string') {
-            // For HTML imports, bookmark.bookId is the folder ID, get the actual folder name first
-            const folderName = folderIdToName.get(bookmark.bookId) || bookmark.bookId;
-            targetBookId = bookMap.get(folderName) || null;
-          }
-
-          // Create bookmark with new ID and proper structure
-          const newBookmark: RichBookmark = {
-            id: crypto.randomUUID(),
-            title: bookmark.title,
-            url: bookmark.url,
-            createdAt: bookmark.createdAt || now,
-            updatedAt: bookmark.updatedAt || now,
-            bookId: targetBookId,
-            pinned: false,
-            tags: bookmark.tags || [],
-            source: 'imported',
-            faviconUrl: bookmark.faviconUrl || internalComputeFavicon(bookmark.url)
-          };
-
-          newBookmarks.push(newBookmark);
-
-          // Update progress
-          onProgress?.({
-            current: i + (newBookmarks.length - (batch.length - batch.indexOf(bookmark) - 1)),
-            total: importedBookmarks.length,
-            currentItem: bookmark.title
-          });
-
-        } catch (error) {
-          console.error('Failed to process bookmark:', bookmark.title, error);
-        }
-      }
-
-      // Small delay to allow UI updates
-      await new Promise(resolve => setTimeout(resolve, 10));
-    }
-
-    // Update state with all new bookmarks at once
-    if (newBookmarks.length > 0) {
-      const nextBookmarks = [...bookmarks, ...newBookmarks];
-      const nextRootOrder = [
-        ...rootOrder,
-        ...newBookmarks.filter(b => !b.bookId).map(b => b.id)
-      ];
-
-      // Update book orders for bookmarks assigned to books
-      const bookUpdates = new Map<string, string[]>();
-      for (const bookmark of newBookmarks) {
-        if (bookmark.bookId) {
-          if (!bookUpdates.has(bookmark.bookId)) {
-            const existingBook = newBooks.find(b => b.id === bookmark.bookId);
-            bookUpdates.set(bookmark.bookId, existingBook ? [...(existingBook.order || [])] : []);
-          }
-          bookUpdates.get(bookmark.bookId)!.push(bookmark.id);
-        }
-      }
-
-      const nextBooks = newBooks.map(book => {
-        const newOrder = bookUpdates.get(book.id);
-        if (newOrder) {
-          return { ...book, order: newOrder };
-        }
-        return book;
-      });
-
-      if (verboseDebug) {
-        console.log('🔍 VERBOSE DEBUG: About to call persistAll');
-        console.log('🔍 VERBOSE DEBUG: nextBookmarks count:', nextBookmarks.length);
-        console.log('🔍 VERBOSE DEBUG: nextBooks count:', nextBooks.length);
-        console.log('🔍 VERBOSE DEBUG: nextRootOrder:', nextRootOrder);
-      }
-
-      try {
-        internalPersistAll(nextBookmarks, nextBooks, nextRootOrder, pinnedOrder);
-
-        if (verboseDebug) {
-          console.log('🔍 VERBOSE DEBUG: persistAll completed successfully');
-          console.log('🔍 VERBOSE DEBUG: Final bookmark count should be:', nextBookmarks.length);
-          console.log('🔍 VERBOSE DEBUG: Final book count should be:', nextBooks.length);
-
-          // Verify data was actually saved to localStorage
-          const savedData = localStorage.getItem('emperor_library');
-          if (savedData) {
-            const parsed = JSON.parse(savedData);
-            console.log('🔍 VERBOSE DEBUG: Verified localStorage save - bookmarks:', parsed.bookmarks?.length || 0, 'books:', parsed.books?.length || 0);
-          } else {
-            console.log('🔍 VERBOSE DEBUG: ERROR - No data found in localStorage after persistAll!');
-          }
-        }
-      } catch (error) {
-        console.error('🔍 VERBOSE DEBUG: persistAll failed:', error);
-      }
-    }
-
-    console.log('Import completed:', newBookmarks.length, 'bookmarks imported');
   }
 
   function handleExport() {
@@ -587,6 +465,15 @@ export default function App() {
    */
   function handleRetag(b: RichBookmark) {
     setRetaggingBookmark(b);
+  }
+
+  /**
+   * handleMultiRetag
+   * ----------------
+   * Handler for multi-bookmark retagging
+   */
+  function handleMultiRetag(bookmarks: RichBookmark[]) {
+    setMultiRetaggingBookmarks(bookmarks);
   }
 
   /**
@@ -635,7 +522,9 @@ export default function App() {
   }
 
   function handleChangeBookIcon(bookId: string, icon: string | null) {
-    console.log("Change icon for book", bookId, "to", icon);
+    if (appSettings.verboseDebug) {
+      console.log("Change icon for book", bookId, "to", icon);
+    }
     updateBookIcon(bookId, icon);
   }
 
@@ -798,8 +687,6 @@ export default function App() {
    */
   const canReorderMain = activeBookId !== null;
 
-
-
   /**
    * Keyboard Shortcuts
    * ------------------
@@ -928,10 +815,9 @@ export default function App() {
           </div>
         ) : null}
       </DragOverlay>
-      
+
 <div>
-  {/* {import.meta.env.VITE_DEBUG_SYNC && <SyncDebugPanel />} */}
-  { <SyncDebugPanel />}
+  {appSettings.verboseDebug && <SyncDebugPanel />}
 </div>
       <Layout
         sidebar={
@@ -1035,6 +921,10 @@ export default function App() {
               onActivateBook={handleActivateBook}
               viewMode={appSettings.viewMode}
               infoVisibility={appSettings.infoVisibility}
+              onMultiRetag={handleMultiRetag}
+              rootOrder={rootOrder}
+              pinnedOrder={pinnedOrder}
+              persistAll={internalPersistAll}
             />
           </>
         )}
@@ -1079,6 +969,25 @@ export default function App() {
         />
       )}
 
+      {multiRetaggingBookmarks && (
+        <MultiRetagModal
+          bookmarks={multiRetaggingBookmarks}
+          onSave={(updatedBookmarks) => {
+            // Update all bookmarks in a single batch operation
+            const updatedIds = new Set(updatedBookmarks.map(b => b.id));
+            const nextBookmarks = bookmarks.map(bookmark =>
+              updatedIds.has(bookmark.id)
+                ? updatedBookmarks.find(b => b.id === bookmark.id)!
+                : bookmark
+            );
+
+            internalPersistAll(nextBookmarks, books, rootOrder, pinnedOrder);
+            setMultiRetaggingBookmarks(null);
+            setSelectedIds([]);
+          }}
+          onClose={() => setMultiRetaggingBookmarks(null)}
+        />
+      )}
 
     </DndContext>
   );

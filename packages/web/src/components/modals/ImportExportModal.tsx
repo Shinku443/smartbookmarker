@@ -8,7 +8,7 @@ interface ImportExportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onImport: (bookmarks: RichBookmark[]) => Promise<void>;
-  onImportBookmarks: (bookmarks: RichBookmark[], folders?: any[], onProgress?: (progress: { current: number; total: number; currentItem?: string }) => void, onCancel?: () => boolean) => Promise<void>;
+  onImportBookmarks: (bookmarks: RichBookmark[], folders?: any[], rootBookmarks?: RichBookmark[], onProgress?: (progress: { current: number; total: number; currentItem?: string }) => void, onCancel?: () => boolean) => Promise<void>;
   bookmarks: RichBookmark[];
   books: Book[];
 }
@@ -126,6 +126,7 @@ export default function ImportExportModal({
       await onImportBookmarks(
         richBookmarks,
         result.folders,
+        result.rootBookmarks,
         (progress) => {
           if (!cancelled) {
             setImportProgress({

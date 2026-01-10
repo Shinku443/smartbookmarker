@@ -11,6 +11,8 @@ export function SyncDebugPanel() {
   const syncEvents = useBookmarksStore(s => s.syncEvents);
   const syncWithServer = useBookmarksStore(s => s.syncWithServer);
 
+
+
   const [showTimeline, setShowTimeline] = useState(false);
   const [showServerOps, setShowServerOps] = useState(false);
   const [serverData, setServerData] = useState<any>(null);
@@ -85,6 +87,13 @@ export function SyncDebugPanel() {
     alert('Local sync state cleared. Refresh the page.');
   };
 
+  const clearAllLocalData = () => {
+    if (!confirm('This will DELETE ALL LOCAL DATA from localStorage. This cannot be undone. Continue?')) return;
+    localStorage.removeItem('emperor_library');
+    alert('All local data cleared. Reloading page...');
+    window.location.reload();
+  };
+
   // Random data generation functions
   const generateRandomTitle = () => {
     const adjectives = ['Amazing', 'Fantastic', 'Great', 'Awesome', 'Super', 'Cool', 'Epic', 'Legendary', 'Mighty', 'Powerful'];
@@ -112,89 +121,211 @@ export function SyncDebugPanel() {
 
   const addRandomBookLocal = async () => {
     try {
-      const store = useBookmarksStore.getState();
-      await store.createBook({
-        title: generateRandomTitle(),
-        emoji: generateRandomEmoji()
-      });
-      alert('Random book added locally');
-    } catch (error) {
+      // Create new book data
+      const now = Date.now();
+      const newBook = {
+        id: `local-book-${now}`,
+        name: generateRandomTitle(),
+        icon: generateRandomEmoji(),
+        order: [] as string[],
+        createdAt: now,
+        updatedAt: now,
+        parentBookId: null
+      };
+
+      // Update localStorage directly
+      const existingData = JSON.parse(localStorage.getItem('emperor_library') || '{"bookmarks":[],"books":[],"rootOrder":[],"pinnedOrder":[]}');
+      existingData.books.push(newBook);
+      existingData.rootOrder.push(newBook.id);
+      localStorage.setItem('emperor_library', JSON.stringify(existingData));
+
+      // Reload page to pick up changes
+      window.location.reload();
+
+      alert('Random book added locally (will sync when server available)');
+    } catch (error: unknown) {
       console.error('Failed to add random book locally:', error);
-      alert('Failed to add random book locally');
+      alert('Failed to add random book locally: ' + (error instanceof Error ? error.message : String(error)));
     }
   };
 
   const addRandomPageLocal = async () => {
     try {
-      const store = useBookmarksStore.getState();
-      const books = store.books;
-      let bookId;
+      // Update localStorage directly
+      const existingData = JSON.parse(localStorage.getItem('emperor_library') || '{"bookmarks":[],"books":[],"rootOrder":[],"pinnedOrder":[]}');
 
-      // Randomly decide: 1/3 chance for each option
-      const rand = Math.random();
-      if (rand < 0.33) {
-        // Option 1: Create new book and add page to it
-        await store.createBook({
-          title: generateRandomTitle(),
-          emoji: generateRandomEmoji()
-        });
-        const updatedBooks = useBookmarksStore.getState().books;
-        bookId = updatedBooks[updatedBooks.length - 1].id;
-      } else if (rand < 0.66 && books.length > 0) {
-        // Option 2: Add to existing book
-        bookId = books[Math.floor(Math.random() * books.length)].id;
+      let targetBookId: string | null = null;
+
+      // Decide where to add the page: 50/50 chance between existing book or root
+      if (existingData.books.length === 0) {
+        // No books exist, create a new book for the page
+        const now = Date.now();
+        const newBook = {
+          id: `local-book-${now}`,
+          name: generateRandomTitle(),
+          icon: generateRandomEmoji(),
+          order: [] as string[],
+          createdAt: now,
+          updatedAt: now,
+          parentBookId: null
+        };
+        existingData.books.push(newBook);
+        existingData.rootOrder.push(newBook.id);
+        targetBookId = newBook.id;
       } else {
-        // Option 3: Add to top level (but local store might not support this)
-        // For now, fallback to creating a book if we can't do top-level
-        await store.createBook({
-          title: generateRandomTitle(),
-          emoji: generateRandomEmoji()
-        });
-        const updatedBooks = useBookmarksStore.getState().books;
-        bookId = updatedBooks[updatedBooks.length - 1].id;
+        // Books exist - 50/50 chance: add to random existing book OR to root (bookId: null)
+        const rand = Math.random();
+        if (rand < 0.5) {
+          // Add to a random existing book
+          const randomBook = existingData.books[Math.floor(Math.random() * existingData.books.length)];
+          targetBookId = randomBook.id;
+        } else {
+          // Add to root level (bookId: null)
+          targetBookId = null;
+        }
       }
 
-      await store.createBookmark({
-        bookId,
+      // Create new page data
+      const pageTimestamp = Date.now();
+      const newPage = {
+        id: `local-page-${pageTimestamp}`,
+        bookId: targetBookId,
         title: generateRandomTitle(),
-        content: generateRandomContent()
-      });
-      alert('Random page added locally');
-    } catch (error) {
+        url: "",
+        createdAt: pageTimestamp,
+        updatedAt: pageTimestamp,
+        faviconUrl: "",
+        tags: [],
+        source: "manual",
+        pinned: false
+      };
+
+      // Update the target book's order to include the new page
+      existingData.books = existingData.books.map((book: any) =>
+        book.id === targetBookId
+          ? { ...book, order: [...(book.order ?? []), newPage.id] }
+          : book
+      );
+
+      // Add the page
+      existingData.bookmarks.push(newPage);
+
+      localStorage.setItem('emperor_library', JSON.stringify(existingData));
+
+      // Reload page to pick up changes
+      window.location.reload();
+
+      alert('Random page added locally (will sync when server available)');
+    } catch (error: unknown) {
       console.error('Failed to add random page locally:', error);
-      alert('Failed to add random page locally');
+      alert('Failed to add random page locally: ' + (error instanceof Error ? error.message : String(error)));
+    }
+  };
+
+  const addRandomDataOfflineOnly = async () => {
+    try {
+      // Direct localStorage manipulation for pure offline testing
+      const existingData = JSON.parse(localStorage.getItem('emperor_library') || '{"bookmarks":[],"books":[],"rootOrder":[],"pinnedOrder":[]}');
+
+      const newBook = {
+        id: `local-book-${Date.now()}`,
+        title: generateRandomTitle(),
+        emoji: generateRandomEmoji(),
+        order: Date.now(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      const newPage = {
+        id: `local-page-${Date.now() + 1}`,
+        bookId: newBook.id,
+        title: generateRandomTitle(),
+        url: "",
+        content: generateRandomContent(),
+        description: null,
+        faviconUrl: null,
+        thumbnailUrl: null,
+        extractedText: null,
+        screenshotUrl: null,
+        metaDescription: null,
+        status: null,
+        notes: null,
+        source: "manual",
+        rawMetadata: null,
+        order: Date.now() + 1,
+        pinned: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      existingData.books.push(newBook);
+      existingData.bookmarks.push(newPage);
+      existingData.rootOrder.push(newBook.id);
+
+      localStorage.setItem('emperor_library', JSON.stringify(existingData));
+
+      // Force a page reload to pick up the localStorage changes
+      window.location.reload();
+
+      alert('Random data added directly to localStorage (pure offline - no sync)');
+    } catch (error: unknown) {
+      console.error('Failed to add offline data:', error);
+      alert('Failed to add offline data: ' + (error instanceof Error ? error.message : String(error)));
     }
   };
 
   const addRandomBookServer = async () => {
     try {
-      await createBook({
-        title: generateRandomTitle(),
-        emoji: generateRandomEmoji()
+      const response = await fetch('http://localhost:4000/books', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: generateRandomTitle(),
+          emoji: generateRandomEmoji()
+        })
       });
+
+      if (!response.ok) {
+        throw new Error(`Server returned ${response.status}: ${await response.text()}`);
+      }
+
+      const newBook = await response.json();
       alert('Random book added to server');
       fetchAllServerData(); // Refresh server data
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to add random book to server:', error);
-      alert('Failed to add random book to server');
+      alert('Failed to add random book to server: ' + (error instanceof Error ? error.message : String(error)));
     }
   };
 
   const addRandomPageServer = async () => {
     try {
       // First fetch server books to get a bookId
-      const res = await fetch('http://localhost:4000/books');
-      const books = await res.json();
+      const booksRes = await fetch('http://localhost:4000/books');
+      if (!booksRes.ok) {
+        throw new Error(`Failed to fetch books: ${booksRes.status}`);
+      }
+      const books = await booksRes.json();
       let bookId = null;
 
       // Randomly decide: 1/3 chance for each option
       const rand = Math.random();
       if (rand < 0.33) {
         // Option 1: Create new book and add page to it
-        const newBook = await createBook({
-          title: generateRandomTitle(),
-          emoji: generateRandomEmoji()
+        const bookResponse = await fetch('http://localhost:4000/books', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: generateRandomTitle(),
+            emoji: generateRandomEmoji()
+          })
         });
+
+        if (!bookResponse.ok) {
+          throw new Error(`Failed to create book: ${bookResponse.status}`);
+        }
+
+        const newBook = await bookResponse.json();
         bookId = newBook.id;
       } else if (rand < 0.66 && books.length > 0) {
         // Option 2: Add to existing book
@@ -204,16 +335,25 @@ export function SyncDebugPanel() {
         bookId = null;
       }
 
-      await createPage({
-        bookId,
-        title: generateRandomTitle(),
-        content: generateRandomContent()
+      const pageResponse = await fetch('http://localhost:4000/pages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookId,
+          title: generateRandomTitle(),
+          content: generateRandomContent()
+        })
       });
+
+      if (!pageResponse.ok) {
+        throw new Error(`Failed to create page: ${pageResponse.status}`);
+      }
+
       alert('Random page added to server');
       fetchAllServerData(); // Refresh server data
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to add random page to server:', error);
-      alert('Failed to add random page to server');
+      alert('Failed to add random page to server: ' + (error instanceof Error ? error.message : String(error)));
     }
   };
 
@@ -353,6 +493,12 @@ export function SyncDebugPanel() {
                 Clear Local
               </button>
               <button
+                onClick={clearAllLocalData}
+                className="px-2 py-1 text-xs bg-rose-600 hover:bg-rose-700 rounded"
+              >
+                Clear Local Data
+              </button>
+              <button
                 onClick={clearAllData}
                 className="px-2 py-1 text-xs bg-red-600 hover:bg-red-700 rounded"
               >
@@ -367,24 +513,35 @@ export function SyncDebugPanel() {
                 <button
                   onClick={addRandomBookLocal}
                   className="px-2 py-1 text-xs bg-purple-600 hover:bg-purple-700 rounded"
+                  title="Adds via store (will sync)"
                 >
                   + Book Local
                 </button>
                 <button
                   onClick={addRandomPageLocal}
                   className="px-2 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 rounded"
+                  title="Adds via store (will sync)"
                 >
                   + Page Local
                 </button>
                 <button
+                  onClick={addRandomDataOfflineOnly}
+                  className="px-2 py-1 text-xs bg-teal-600 hover:bg-teal-700 rounded"
+                  title="Direct localStorage (no sync)"
+                >
+                  + Offline Only
+                </button>
+                <button
                   onClick={addRandomBookServer}
                   className="px-2 py-1 text-xs bg-pink-600 hover:bg-pink-700 rounded"
+                  title="Direct to server"
                 >
                   + Book Server
                 </button>
                 <button
                   onClick={addRandomPageServer}
                   className="px-2 py-1 text-xs bg-cyan-600 hover:bg-cyan-700 rounded"
+                  title="Direct to server"
                 >
                   + Page Server
                 </button>

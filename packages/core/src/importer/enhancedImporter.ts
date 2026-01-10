@@ -12,6 +12,7 @@ export interface ImportProgress {
 export interface ImportResult {
   bookmarks: Bookmark[];
   folders: ImportFolder[];
+  rootBookmarks: Bookmark[]; // Root-level bookmarks (not in any folder)
   stats: {
     total: number;
     imported: number;
@@ -82,26 +83,31 @@ export class EnhancedBookmarkImporter {
     };
 
     let allBookmarks: Bookmark[] = [];
+    let rootBookmarks: Bookmark[] = [];
     let rootFolders: ImportFolder[] = [];
 
     try {
       // Parse folder structure
       console.log('🔍 About to call parseHtmlFolders...');
-      rootFolders = this.parseHtmlFolders(doc);
-      console.log('🔍 parseHtmlFolders returned:', rootFolders.length, 'folders');
+      const parseResult = this.parseHtmlFolders(doc);
+      rootFolders = parseResult.folders;
+      rootBookmarks = parseResult.rootBookmarks;
+      console.log('🔍 parseHtmlFolders returned:', rootFolders.length, 'folders,', rootBookmarks.length, 'root bookmarks');
 
       allBookmarks = this.flattenFolders(rootFolders);
       console.log('🔍 flattenFolders returned:', allBookmarks.length, 'bookmarks');
 
-      progress.total = allBookmarks.length;
+      progress.total = allBookmarks.length + rootBookmarks.length;
     } catch (error) {
       console.error('🔍 ERROR in importFromHtml:', error);
       throw error;
     }
 
     const bookmarks: Bookmark[] = [];
+    const processedRootBookmarks: Bookmark[] = [];
     const seenUrls = new Set<string>();
 
+    // Process folder bookmarks
     for (const bookmark of allBookmarks) {
       progress.processed++;
       progress.currentItem = bookmark.title;
@@ -150,12 +156,62 @@ export class EnhancedBookmarkImporter {
       this.options.onProgress?.(progress);
     }
 
+    // Process root bookmarks (no folder assignment)
+    for (const bookmark of rootBookmarks) {
+      progress.processed++;
+      progress.currentItem = bookmark.title;
+
+      try {
+        // Duplicate detection
+        if (this.options.detectDuplicates && seenUrls.has(bookmark.url)) {
+          progress.duplicates++;
+          if (!this.options.mergeDuplicates) {
+            continue;
+          }
+        }
+
+        seenUrls.add(bookmark.url);
+
+        // Generate auto tags
+        const autoTags = await generateTags(bookmark.title, bookmark.url);
+
+        const fullBookmark: Bookmark = {
+          id: bookmark.id || crypto.randomUUID(),
+          url: bookmark.url,
+          title: bookmark.title,
+          createdAt: bookmark.createdAt || Date.now(),
+          updatedAt: bookmark.updatedAt || Date.now(),
+          faviconUrl: bookmark.faviconUrl || this.computeFavicon(bookmark.url),
+          tags: [
+            ...autoTags.map(label => ({ label, type: "auto" as const })),
+            ...(bookmark.tags || [])
+          ],
+          source: "imported",
+          bookId: null, // Root bookmarks have no folder
+          description: bookmark.description,
+          metaDescription: bookmark.metaDescription,
+          extractedText: bookmark.extractedText
+        };
+
+        processedRootBookmarks.push(fullBookmark);
+
+      } catch (error) {
+        progress.errors++;
+        if (!this.options.skipInvalid) {
+          throw error;
+        }
+      }
+
+      this.options.onProgress?.(progress);
+    }
+
     return {
       bookmarks,
       folders: rootFolders,
+      rootBookmarks: processedRootBookmarks,
       stats: {
         total: progress.total,
-        imported: bookmarks.length,
+        imported: bookmarks.length + processedRootBookmarks.length,
         duplicates: progress.duplicates,
         errors: progress.errors
       }
@@ -204,18 +260,21 @@ export class EnhancedBookmarkImporter {
     }
   }
 
-  private parseHtmlFolders(doc: Document): ImportFolder[] {
+  private parseHtmlFolders(doc: Document): { folders: ImportFolder[], rootBookmarks: Bookmark[] } {
     const folders: ImportFolder[] = [];
+    const rootBookmarks: Bookmark[] = [];
 
     // Start parsing from the body element
-    const bodyFolders = this.parseElementFolders(doc.body);
-    folders.push(...bodyFolders);
+    const result = this.parseElementFolders(doc.body);
+    folders.push(...result.folders);
+    rootBookmarks.push(...result.rootBookmarks);
 
-    return folders;
+    return { folders, rootBookmarks };
   }
 
-  private parseElementFolders(element: Element): ImportFolder[] {
+  private parseElementFolders(element: Element): { folders: ImportFolder[], rootBookmarks: Bookmark[] } {
     const folders: ImportFolder[] = [];
+    const rootBookmarks: Bookmark[] = [];
 
     // Netscape format wraps DT elements in P tags, so we need to look deeper
     const allElements = Array.from(element.querySelectorAll('*'));
@@ -263,8 +322,8 @@ export class EnhancedBookmarkImporter {
 
             // Parse folder contents if DL was found
             if (folderDl) {
-              const subFolders = this.parseElementFolders(folderDl);
-              folder.children.push(...subFolders);
+              const subResult = this.parseElementFolders(folderDl);
+              folder.children.push(...subResult.folders);
 
               // Also look for direct DT children in the DL
               const dlChildren = Array.from(folderDl.children);
@@ -289,19 +348,10 @@ export class EnhancedBookmarkImporter {
           }
 
           else if (dtChild.tagName === 'A' && (dtChild as HTMLAnchorElement).href) {
-            // Found a root-level bookmark
+            // Found a root-level bookmark - add to rootBookmarks instead of creating a folder
             const bookmark = this.parseHtmlBookmark(dtChild);
             if (bookmark) {
-              // Create a default folder for root bookmarks
-              if (folders.length === 0 || folders[folders.length - 1].name !== 'Root Bookmarks') {
-                folders.push({
-                  id: crypto.randomUUID(),
-                  name: 'Root Bookmarks',
-                  bookmarks: [],
-                  children: []
-                });
-              }
-              folders[folders.length - 1].bookmarks.push(bookmark);
+              rootBookmarks.push(bookmark);
             }
             break; // Found the A, processed the bookmark
           }
@@ -309,7 +359,7 @@ export class EnhancedBookmarkImporter {
       }
     }
 
-    return folders;
+    return { folders, rootBookmarks };
   }
 
   private parseHtmlFolder(dl: Element, parentId?: string): ImportFolder | null {
@@ -545,6 +595,7 @@ export class EnhancedBookmarkImporter {
     return {
       bookmarks: processedBookmarks,
       folders: [],
+      rootBookmarks: [],
       stats: {
         total: progress.total,
         imported: processedBookmarks.length,
@@ -679,3 +730,4 @@ export class EnhancedBookmarkImporter {
     return div.innerHTML;
   }
 }
+

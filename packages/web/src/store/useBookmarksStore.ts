@@ -7,6 +7,7 @@
 // - pinned state
 // - sync with backend
 // - conflict resolution (local unsynced changes win)
+// - offline local-only operations (for debug/testing)
 
 import { create } from "zustand";
 import { nanoid } from "nanoid";
@@ -79,6 +80,7 @@ type State = {
   initializeFromServer: () => Promise<void>;
   syncWithServer: () => Promise<void>;
 
+  // Server operations (require backend)
   createBook: (input: { title: string; emoji?: string | null }) => Promise<void>;
   renameBook: (id: string, title: string) => Promise<void>;
   updateBookEmoji: (id: string, emoji: string | null) => Promise<void>;
@@ -126,6 +128,19 @@ type State = {
     bookId: string
   ) => Promise<void>;
   toggleBookmarkPinned: (id: string) => Promise<void>;
+
+  // Local-only operations (work offline without server)
+  createBookLocal: (input: { title: string; emoji?: string | null }) => Promise<Book>;
+  createBookmarkLocal: (input: {
+    bookId: string;
+    title: string;
+    url?: string;
+    content?: string | null;
+    status?: string;
+    notes?: string;
+  }) => Promise<Page>;
+  deleteBookmarkLocal: (id: string) => Promise<void>;
+  deleteBookLocal: (id: string) => Promise<void>;
 };
 
 function computeBetween(
@@ -310,7 +325,7 @@ export const useBookmarksStore = create<State>((set, get) => ({
     }
   },
 
-  // BOOKS
+  // BOOKS - SERVER OPERATIONS
 
   async createBook(input) {
     const tempId = `local-book-${nanoid()}`;
@@ -449,7 +464,7 @@ export const useBookmarksStore = create<State>((set, get) => ({
     }
   },
 
-  // PAGES
+  // PAGES - SERVER OPERATIONS
 
   async createBookmark(input) {
     const tempId = `local-page-${nanoid()}`;
@@ -462,6 +477,7 @@ export const useBookmarksStore = create<State>((set, get) => ({
           id: tempId,
           bookId: input.bookId,
           title: input.title,
+          url: "",
           content: input.content ?? null,
           description: null,
           faviconUrl: null,
@@ -610,7 +626,7 @@ export const useBookmarksStore = create<State>((set, get) => ({
     }
   },
 
-  // ENHANCED METHODS
+  // ENHANCED METHODS - SERVER OPERATIONS
 
   async createBookmarkWithUrl(input) {
     const tempId = `local-page-${nanoid()}`;
@@ -623,6 +639,7 @@ export const useBookmarksStore = create<State>((set, get) => ({
           id: tempId,
           bookId: input.bookId,
           title: input.title,
+          url: input.url,
           content: null,
           description: null,
           faviconUrl: null,
@@ -750,5 +767,80 @@ export const useBookmarksStore = create<State>((set, get) => ({
       set({ pages: prev });
       throw err;
     }
+  },
+
+  // LOCAL-ONLY OPERATIONS (WORK OFFLINE WITHOUT SERVER)
+
+  async createBookLocal(input) {
+    const id = `local-book-${nanoid()}`;
+    const now = Date.now();
+    const nowIso = new Date().toISOString();
+
+    const newBook: Book = {
+      id,
+      title: input.title,
+      emoji: input.emoji ?? null,
+      order: now,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      isLocalOnly: true,
+      hasLocalChanges: true,
+    };
+
+    set((state) => ({
+      books: [...state.books, newBook].sort((a, b) => a.order - b.order),
+    }));
+
+    return newBook;
+  },
+
+  async createBookmarkLocal(input) {
+    const id = `local-page-${nanoid()}`;
+    const now = Date.now();
+    const nowIso = new Date().toISOString();
+
+    const newPage: Page = {
+      id,
+      bookId: input.bookId,
+      title: input.title,
+      url: input.url || "",
+      content: input.content ?? null,
+      description: null,
+      faviconUrl: null,
+      thumbnailUrl: null,
+      extractedText: null,
+      screenshotUrl: null,
+      metaDescription: null,
+      status: input.status || null,
+      notes: input.notes || null,
+      source: "manual",
+      rawMetadata: null,
+      order: now,
+      pinned: false,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      isLocalOnly: true,
+      hasLocalChanges: true,
+    };
+
+    set((state) => ({
+      pages: [...state.pages, newPage].sort((a, b) => a.order - b.order),
+    }));
+
+    return newPage;
+  },
+
+  async deleteBookmarkLocal(id) {
+    set((state) => ({
+      pages: state.pages.filter((p) => p.id !== id),
+    }));
+  },
+
+  async deleteBookLocal(id) {
+    set((state) => ({
+      books: state.books.filter((b) => b.id !== id),
+      // Also remove pages from this book
+      pages: state.pages.filter((p) => p.bookId !== id),
+    }));
   },
 }));
