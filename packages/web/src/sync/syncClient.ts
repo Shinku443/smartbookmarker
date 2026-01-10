@@ -2,10 +2,21 @@ import { syncLog, syncLogCreate, syncLogDelete } from "./logger";
 import type { SyncChange, SyncPayload } from "./types";
 import type { PushPayload } from "./syncPayloadBuilder";
 
+type LocalSyncMetadata = {
+  entityType: "book" | "page" | "tag";
+  entityId: string;
+  version: number;
+  updatedAt: string;
+  deleted: boolean;
+  pending: boolean;
+};
+
 export class SyncClient {
   private lastSyncAt: string | null;
+  private localSyncMetadata: LocalSyncMetadata[];
 
   constructor(private baseUrl: string = "") {
+    // Load last sync time
     const stored = localStorage.getItem("lastSyncAt");
     if (stored) {
       const storedTime = new Date(stored).getTime();
@@ -20,6 +31,81 @@ export class SyncClient {
     } else {
       this.lastSyncAt = null;
     }
+
+    // Load local sync metadata
+    const metadataStr = localStorage.getItem("localSyncMetadata");
+    this.localSyncMetadata = metadataStr ? JSON.parse(metadataStr) : [];
+
+    // Clean up any stale metadata
+    this.cleanupStaleMetadata();
+  }
+
+  private saveMetadata() {
+    localStorage.setItem("localSyncMetadata", JSON.stringify(this.localSyncMetadata));
+  }
+
+  private cleanupStaleMetadata() {
+    const now = Date.now();
+    // Remove metadata older than 30 days
+    this.localSyncMetadata = this.localSyncMetadata.filter(metadata => {
+      const metadataTime = new Date(metadata.updatedAt).getTime();
+      return now - metadataTime < 30 * 24 * 60 * 60 * 1000; // 30 days
+    });
+    this.saveMetadata();
+  }
+
+  private getMetadata(entityType: string, entityId: string): LocalSyncMetadata | null {
+    return this.localSyncMetadata.find(m => m.entityType === entityType && m.entityId === entityId) || null;
+  }
+
+  private updateMetadata(entityType: string, entityId: string, updates: Partial<LocalSyncMetadata>) {
+    const existing = this.getMetadata(entityType, entityId);
+    const now = new Date().toISOString();
+
+    if (existing) {
+      Object.assign(existing, updates, { updatedAt: now });
+    } else {
+      this.localSyncMetadata.push({
+        entityType: entityType as "book" | "page" | "tag",
+        entityId,
+        version: 1,
+        updatedAt: now,
+        deleted: false,
+        pending: true,
+        ...updates
+      });
+    }
+
+    this.saveMetadata();
+  }
+
+  private markAsSynced(entityType: string, entityId: string) {
+    const metadata = this.getMetadata(entityType, entityId);
+    if (metadata) {
+      metadata.pending = false;
+      metadata.version++;
+      metadata.updatedAt = new Date().toISOString();
+      this.saveMetadata();
+    }
+  }
+
+  private markAsDeleted(entityType: string, entityId: string) {
+    const metadata = this.getMetadata(entityType, entityId);
+    if (metadata) {
+      metadata.deleted = true;
+      metadata.pending = true;
+      metadata.updatedAt = new Date().toISOString();
+    } else {
+      this.localSyncMetadata.push({
+        entityType: entityType as "book" | "page" | "tag",
+        entityId,
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        deleted: true,
+        pending: true
+      });
+    }
+    this.saveMetadata();
   }
 
   async push(payload: PushPayload): Promise<boolean> {
@@ -68,6 +154,10 @@ export class SyncClient {
         syncLog("Push failed: server returned non-OK", res.status);
         return false;
       }
+
+      // Mark all pushed entities as synced
+      payload.books.forEach(book => this.markAsSynced("book", book.id));
+      payload.pages.forEach(page => this.markAsSynced("page", page.id));
 
       syncLog("Push completed successfully");
       return true;
@@ -145,12 +235,63 @@ export class SyncClient {
         }
       }
 
+      // Clean up local metadata for entities that were successfully synced from server
+      // For now, just update versions for entities that exist in the payload
+      payload.changes.forEach(change => {
+        // For non-deleted entities, update our local version to match server
+        const localMeta = this.getMetadata(change.entityType, change.entityId);
+        if (localMeta) {
+          localMeta.version = change.version;
+          localMeta.pending = false;
+          localMeta.updatedAt = change.updatedAt;
+        }
+      });
+
+      // Clean up any deleted entities that might be in our local metadata
+      // but are not in the server's changes (meaning they were deleted on server)
+      this.localSyncMetadata = this.localSyncMetadata.filter(localMeta => {
+        // If it's marked as deleted and pending, keep it (it needs to be synced)
+        if (localMeta.deleted && localMeta.pending) {
+          return true;
+        }
+        // If it's not in the server's changes and not pending, it might be deleted on server
+        const existsOnServer = payload.changes.some(change =>
+          change.entityType === localMeta.entityType && change.entityId === localMeta.entityId
+        );
+        return existsOnServer || localMeta.pending;
+      });
+
+      this.saveMetadata();
+
       syncLog("Sync completed successfully");
       return payload;
     } catch (err: any) {
       syncLog("Sync error:", err);
       return null;
     }
+  }
+
+  // New method to get pending changes
+  getPendingChanges(): { books: string[]; pages: string[]; tags: string[] } {
+    const pending = this.localSyncMetadata.filter(m => m.pending && !m.deleted);
+    return {
+      books: pending.filter(m => m.entityType === "book").map(m => m.entityId),
+      pages: pending.filter(m => m.entityType === "page").map(m => m.entityId),
+      tags: pending.filter(m => m.entityType === "tag").map(m => m.entityId)
+    };
+  }
+
+  // New method to get all local sync metadata
+  getAllMetadata(): LocalSyncMetadata[] {
+    return [...this.localSyncMetadata];
+  }
+
+  // New method to reset sync state (for debugging/testing)
+  resetSyncState() {
+    this.lastSyncAt = null;
+    this.localSyncMetadata = [];
+    localStorage.removeItem("lastSyncAt");
+    localStorage.removeItem("localSyncMetadata");
   }
 
 }

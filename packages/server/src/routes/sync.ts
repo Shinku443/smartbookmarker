@@ -235,24 +235,15 @@ export default async function syncRoutes(app: FastifyInstance) {
 
     // TODO: Process tags when tag sync is implemented
 
-    // After successful sync, prune deleted records to keep the sync metadata clean
-    // This runs after every successful sync to prevent the metadata table from growing indefinitely
+    // After successful sync, clean up old deleted records using the enhanced service
     try {
-      const allRecords = await prisma.syncMetadata.findMany({
-        take: 100 // Limit to avoid long-running operations
-      });
-      const deletedRecords = allRecords.filter((r: any) => r.deleted);
-
-      if (deletedRecords.length > 0) {
-        const deletedIds = deletedRecords.map(r => r.entityId);
-        await prisma.syncMetadata.deleteMany({
-          where: { entityId: { in: deletedIds } }
-        });
-        console.log(`[API] POST /sync - pruned ${deletedRecords.length} deleted records from sync metadata`);
+      const cleanedCount = await syncService.cleanupDeletedRecords(30); // Clean up records older than 30 days
+      if (cleanedCount > 0) {
+        console.log(`[API] POST /sync - cleaned up ${cleanedCount} old deleted records from sync metadata`);
       }
     } catch (error) {
-      console.warn('[API] POST /sync - failed to prune deleted records:', error);
-      // Don't fail the sync if pruning fails
+      console.warn('[API] POST /sync - failed to clean up deleted records:', error);
+      // Don't fail the sync if cleanup fails
     }
 
     return { success: true };
@@ -387,5 +378,62 @@ export default async function syncRoutes(app: FastifyInstance) {
       tags,
       syncMetadata,
     });
+  });
+
+  // New endpoint for conflict detection
+  app.get("/sync/conflict/:entityType/:entityId", async (req) => {
+    const { entityType, entityId } = req.params as { entityType: string; entityId: string };
+    console.log(`[API] GET /sync/conflict/${entityType}/${entityId} - checking for conflicts`);
+
+    try {
+      const conflictInfo = await syncService.getConflictInfo(entityType, entityId);
+
+      if (!conflictInfo) {
+        return { exists: false, conflict: false, message: 'Entity not found in sync metadata' };
+      }
+
+      // For now, just return the sync info
+      // In the future, this could compare with client versions for real conflict detection
+      return serializeBigInts({
+        exists: true,
+        conflict: false, // Placeholder - actual conflict detection would compare versions
+        entityType: conflictInfo.entityType,
+        entityId: conflictInfo.entityId,
+        version: conflictInfo.version,
+        deleted: conflictInfo.deleted,
+        lastUpdated: conflictInfo.lastUpdated,
+        message: 'Conflict detection info retrieved'
+      });
+    } catch (error) {
+      console.error(`[API] GET /sync/conflict/${entityType}/${entityId} - error:`, error);
+      return { success: false, error: `Failed to check conflict for ${entityType} ${entityId}` };
+    }
+  });
+
+  // New endpoint to get sync status for multiple entities
+  app.post("/sync/status", async (req) => {
+    const payload = req.body as { entities: { entityType: string; entityId: string }[] };
+    console.log(`[API] POST /sync/status - checking status for ${payload.entities.length} entities`);
+
+    try {
+      const results = await Promise.all(
+        payload.entities.map(async (entity) => {
+          const status = await syncService.getEntitySyncStatus(entity.entityType, entity.entityId);
+          return {
+            entityType: entity.entityType,
+            entityId: entity.entityId,
+            ...status
+          };
+        })
+      );
+
+      return serializeBigInts({
+        success: true,
+        results: results
+      });
+    } catch (error) {
+      console.error('[API] POST /sync/status - error:', error);
+      return { success: false, error: 'Failed to check entity statuses' };
+    }
   });
 }
