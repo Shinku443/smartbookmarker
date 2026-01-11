@@ -1,98 +1,306 @@
 import React, { useState } from "react";
+import { useBookmarks } from "../hooks/useBookmarks";
 import { useBookmarksStore } from "../store/useBookmarksStore";
-import { createBook } from "../api/books";
-import { createPage } from "../api/pages";
+import type { RichBookmark } from "../models/RichBookmark";
 
-export function SyncDebugPanel() {
-  const syncStatus = useBookmarksStore(s => s.syncStatus);
-  const lastSyncAt = useBookmarksStore(s => s.lastSyncAt);
-  const syncError = useBookmarksStore(s => s.syncError);
-  const lastSyncSummary = useBookmarksStore(s => s.lastSyncSummary);
-  const syncEvents = useBookmarksStore(s => s.syncEvents);
-  const syncWithServer = useBookmarksStore(s => s.syncWithServer);
+// Simple toast notification system
+let toastTimeouts: NodeJS.Timeout[] = [];
 
+const showToast = (message: string, duration = 3000) => {
+  // Clear existing toasts
+  toastTimeouts.forEach(clearTimeout);
+  toastTimeouts = [];
 
+  // Create toast element
+  const existingToast = document.getElementById('sync-debug-toast');
+  if (existingToast) {
+    existingToast.remove();
+  }
 
-  const [showTimeline, setShowTimeline] = useState(false);
-  const [showServerOps, setShowServerOps] = useState(false);
-  const [serverData, setServerData] = useState<any>(null);
-  const [serverStats, setServerStats] = useState<any>(null);
+  const toast = document.createElement('div');
+  toast.id = 'sync-debug-toast';
+  toast.textContent = message;
+  toast.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.9);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    z-index: 10000;
+    max-width: 300px;
+    word-wrap: break-word;
+  `;
 
-  const isSyncing = syncStatus === "syncing";
+  document.body.appendChild(toast);
 
-  const fetchServerStats = async () => {
+  // Auto remove after duration
+  const timeout = setTimeout(() => {
+    if (toast.parentNode) {
+      toast.parentNode.removeChild(toast);
+    }
+    toastTimeouts = toastTimeouts.filter(t => t !== timeout);
+  }, duration);
+
+  toastTimeouts.push(timeout);
+};
+
+type Props = {
+  books: any[];
+  bookmarks: RichBookmark[];
+  onCreateBook: (parentId: string | null, name: string) => void;
+  onCreatePage: (title: string, url: string, description: string | null, bookId: string | null, tags?: string[]) => Promise<void>;
+};
+
+export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCreatePage }: Props) {
+  // Get real data from the CouchDB store
+  const { books: realBooks, pages: realPages } = useBookmarksStore();
+  const books = realBooks; // Use real books from store
+  const pages = realPages; // Use real pages from store
+
+  // Use the CouchDB store for sync functionality
+  const { syncWithRemote } = useBookmarksStore();
+
+  // Function to trigger sync after API operations
+  const triggerSync = async () => {
     try {
-      const res = await fetch('http://localhost:4000/sync/stats');
-      const data = await res.json();
-      setServerStats(data);
+      await syncWithRemote();
+      console.log('✅ Sync triggered successfully after API operation');
     } catch (error) {
-      console.error('Failed to fetch server stats:', error);
+      console.error('❌ Sync failed after API operation:', error);
     }
   };
 
-  const fetchAllServerData = async () => {
-    try {
-      const res = await fetch('http://localhost:4000/sync/all-data');
-      const data = await res.json();
-      setServerData(data);
-    } catch (error) {
-      console.error('Failed to fetch server data:', error);
-    }
+  // Debug: Log when component re-renders with detailed data
+  console.log('🔄 [SyncDebugPanel] Re-rendering with books:', books.length, 'pages:', pages.length);
+  console.log('📊 [SyncDebugPanel] Books data:', books.map(b => ({ id: b.id, title: b.title })));
+  console.log('📊 [SyncDebugPanel] Pages data:', pages.slice(-3).map(p => ({ id: p.id, title: p.title, bookId: p.bookId })));
+
+  // Use the same functions passed from App
+  const createBook = async (input: { title: string; emoji?: string | null }) => {
+    onCreateBook(null, input.title); // null = root level
   };
 
-  const resetSyncMetadata = async () => {
-    if (!confirm('This will reset all sync metadata. Continue?')) return;
-    try {
-      const res = await fetch('http://localhost:4000/sync/reset', { method: 'POST' });
-      const data = await res.json();
-      alert(data.message || 'Sync metadata reset');
-    } catch (error) {
-      console.error('Failed to reset sync metadata:', error);
-    }
+  const createPage = async (input: { bookId: string; title: string; content?: string }) => {
+    // Create with a dummy URL to ensure it shows up in UI
+    const dummyUrl = `https://example.com/${Date.now()}`;
+    await onCreatePage(input.title, dummyUrl, null, input.bookId || null, []);
   };
 
-  const clearAllData = async () => {
-    if (!confirm('This will DELETE ALL DATA from the server database. This cannot be undone. Continue?')) return;
+  // Backend API functions for CouchDB
+  const createBookViaAPI = async () => {
     try {
-      const res = await fetch('http://localhost:4000/sync/clear-all-data', { method: 'POST' });
-      const data = await res.json();
-      alert(data.message || 'All data cleared');
-      // Refresh local data
-      window.location.reload();
-    } catch (error) {
-      console.error('Failed to clear all data:', error);
-    }
-  };
+      const title = generateRandomTitle();
+      console.log('🔄 Creating book via CouchDB API:', title);
 
-  const deleteEntity = async (entityType: string, entityId: string) => {
-    if (!confirm(`Delete ${entityType} ${entityId}?`)) return;
-    try {
-      const res = await fetch(`http://localhost:4000/sync/entity/${entityType}/${entityId}`, { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
-        alert(data.message);
-        fetchAllServerData(); // Refresh data
-      } else {
-        alert(data.error || 'Delete failed');
+      // Call the books API directly (bypass proxy for now)
+      const response = await fetch('http://localhost:4000/books', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: title,
+          emoji: null
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.status}`);
       }
-    } catch (error) {
-      console.error('Failed to delete entity:', error);
+
+      const result = await response.json();
+      console.log('✅ Book created via API:', result);
+
+      // Trigger sync to bring new data into local store
+      await triggerSync();
+
+      showToast(`✅ Book created in CouchDB: ${title}\nCheck http://localhost:5984/_utils/ to verify`);
+    } catch (error: unknown) {
+      console.error('❌ Failed to create book via API:', error);
+      showToast(`❌ API Error: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
-  const clearLocalSyncState = () => {
-    if (!confirm('Clear local sync state (lastSyncAt, lastSyncedData)?')) return;
-    localStorage.removeItem('lastSyncAt');
-    localStorage.removeItem('lastSyncedData');
-    alert('Local sync state cleared. Refresh the page.');
+  const createPageViaAPI = async () => {
+    try {
+      let bookId: string | null = null;
+      let bookTitle = '';
+
+      if (books.length > 0) {
+        // Add to a random existing book
+        const randomBook = books[Math.floor(Math.random() * books.length)];
+        bookId = randomBook.id;
+        bookTitle = randomBook.title;
+      }
+
+      const pageTitle = generateRandomTitle();
+      const dummyUrl = `https://example.com/${Date.now()}`;
+
+      console.log('🔄 Creating page via CouchDB API:', pageTitle);
+
+      const response = await fetch('http://localhost:4000/pages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: pageTitle,
+          url: dummyUrl,
+          bookId,
+          content: null
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`API call failed: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Page created via API:', result);
+
+      // Trigger sync to bring new data into local store
+      await triggerSync();
+
+      showToast(`✅ Page created in CouchDB: ${pageTitle}\nCheck http://localhost:5984/_utils/ to verify`);
+    } catch (error: unknown) {
+      console.error('❌ Failed to create page via API:', error);
+      showToast(`❌ API Error: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
 
-  const clearAllLocalData = () => {
-    if (!confirm('This will DELETE ALL LOCAL DATA from localStorage. This cannot be undone. Continue?')) return;
-    localStorage.removeItem('emperor_library');
-    alert('All local data cleared. Reloading page...');
-    window.location.reload();
+  // Get delete functions from store
+  const { markLocalDeleted } = useBookmarksStore();
+
+  // Delete functions
+  const deleteLocalData = async () => {
+    try {
+      console.log('🗑️ Deleting all local data (offline-first)...');
+
+      // Use offline-first delete: mark as deleted locally and queue for sync
+      const booksToDelete = [...books];
+      for (const book of booksToDelete) {
+        markLocalDeleted('book', book.id);
+        console.log(`🗑️ Marked local book as deleted: ${book.title}`);
+      }
+
+      // Delete all pages from local store
+      const pagesToDelete = [...pages];
+      for (const page of pagesToDelete) {
+        markLocalDeleted('page', page.id);
+        console.log(`🗑️ Marked local page as deleted: ${page.title}`);
+      }
+
+      showToast('🗑️ All local data marked for deletion');
+    } catch (error: unknown) {
+      console.error('❌ Failed to delete local data:', error);
+      showToast(`❌ Delete local failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
   };
+
+  const deleteBackendData = async () => {
+    try {
+      console.log('🔄 Deleting all backend data (fetching fresh list)...');
+
+      let totalDeleted = 0;
+      let totalErrors = 0;
+
+      // Function to delete all items of a type
+      const deleteAllItems = async (endpoint: string, itemType: string) => {
+        try {
+          console.log(`🗑️ Fetching current ${itemType} list from backend...`);
+
+          // Fetch fresh list from backend
+          const response = await fetch(`http://localhost:4000/${endpoint}`, {
+            method: 'GET'
+          });
+
+          if (!response.ok) {
+            console.warn(`⚠️ Failed to fetch ${itemType} list:`, response.status);
+            return;
+          }
+
+          const data = await response.json();
+          const items = data[endpoint] || [];
+          console.log(`📋 Found ${items.length} ${itemType} to delete`);
+
+          // Delete each item
+          for (const item of items) {
+            try {
+              const deleteResponse = await fetch(`http://localhost:4000/${endpoint}/${item.id}`, {
+                method: 'DELETE'
+              });
+
+              if (deleteResponse.ok) {
+                console.log(`✅ Deleted ${itemType}: ${item.title || item.name || item.id}`);
+                totalDeleted++;
+              } else if (deleteResponse.status === 404) {
+                console.log(`ℹ️ ${itemType} already deleted: ${item.id}`);
+                totalDeleted++; // Count as deleted even if already gone
+              } else {
+                console.warn(`⚠️ Failed to delete ${itemType} ${item.id}:`, deleteResponse.status);
+                totalErrors++;
+              }
+            } catch (error) {
+              console.warn(`⚠️ Error deleting ${itemType} ${item.id}:`, error);
+              totalErrors++;
+            }
+          }
+        } catch (error) {
+          console.error(`❌ Failed to delete ${itemType}:`, error);
+        }
+      };
+
+      // Delete all books and pages
+      await deleteAllItems('books', 'books');
+      await deleteAllItems('pages', 'pages');
+
+      // Trigger sync to update local store
+      await triggerSync();
+
+      const message = totalErrors > 0
+        ? `🗑️ Deleted ${totalDeleted} items (${totalErrors} errors)`
+        : `🗑️ All backend data deleted (${totalDeleted} items)`;
+
+      showToast(message);
+      console.log(`🗑️ Backend delete complete: ${totalDeleted} deleted, ${totalErrors} errors`);
+    } catch (error: unknown) {
+      console.error('❌ Failed to delete backend data:', error);
+      showToast(`❌ Delete failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const deleteAllData = async () => {
+    try {
+      console.log('🔄 Deleting ALL data (local + backend)...');
+
+      // Delete backend data first
+      await deleteBackendData();
+
+      // Delete local data
+      deleteLocalData();
+
+      showToast('🗑️ ALL data deleted (local + backend)');
+    } catch (error: unknown) {
+      console.error('❌ Failed to delete all data:', error);
+      showToast(`❌ Delete all failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  // Use real data from the store
+  const { isInitialized, isSyncing, syncError, lastSyncAt, initializeCouchDB } = useBookmarksStore();
+
+  // Mock function for the sync button (different name to avoid conflict)
+  const manualSync = async () => {
+    try {
+      await syncWithRemote();
+      showToast('🔄 Manual sync completed');
+    } catch (error) {
+      showToast('❌ Manual sync failed');
+    }
+  };
+
+  const [showDetails, setShowDetails] = useState(false);
+  const [showRecent, setShowRecent] = useState(false);
 
   // Random data generation functions
   const generateRandomTitle = () => {
@@ -119,256 +327,75 @@ export function SyncDebugPanel() {
     return contents[Math.floor(Math.random() * contents.length)];
   };
 
-  const addRandomBookLocal = async () => {
+  const addRandomBook = async () => {
     try {
-      // Create new book data
-      const now = Date.now();
-      const newBook = {
-        id: `local-book-${now}`,
-        name: generateRandomTitle(),
-        icon: generateRandomEmoji(),
-        order: [] as string[],
-        createdAt: now,
-        updatedAt: now,
-        parentBookId: null
-      };
-
-      // Update localStorage directly
-      const existingData = JSON.parse(localStorage.getItem('emperor_library') || '{"bookmarks":[],"books":[],"rootOrder":[],"pinnedOrder":[]}');
-      existingData.books.push(newBook);
-      existingData.rootOrder.push(newBook.id);
-      localStorage.setItem('emperor_library', JSON.stringify(existingData));
-
-      // Reload page to pick up changes
-      window.location.reload();
-
-      alert('Random book added locally (will sync when server available)');
+      const title = generateRandomTitle();
+      onCreateBook(null, title);
+      console.log('📖 [SyncDebugPanel] Created book:', title);
+      console.log('📊 [SyncDebugPanel] Books after creation:', books.length, books.map(b => b.title));
+      showToast(`✅ Created book: ${title}`);
     } catch (error: unknown) {
-      console.error('Failed to add random book locally:', error);
-      alert('Failed to add random book locally: ' + (error instanceof Error ? error.message : String(error)));
+      console.error('❌ [SyncDebugPanel] Failed to create book:', error);
+      showToast(`❌ Failed to create book: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
-  const addRandomPageLocal = async () => {
+  const addRandomPage = async () => {
     try {
-      // Update localStorage directly
-      const existingData = JSON.parse(localStorage.getItem('emperor_library') || '{"bookmarks":[],"books":[],"rootOrder":[],"pinnedOrder":[]}');
+      let bookId: string | null = null;
+      let bookTitle = '';
 
-      let targetBookId: string | null = null;
-
-      // Decide where to add the page: 50/50 chance between existing book or root
-      if (existingData.books.length === 0) {
-        // No books exist, create a new book for the page
-        const now = Date.now();
-        const newBook = {
-          id: `local-book-${now}`,
-          name: generateRandomTitle(),
-          icon: generateRandomEmoji(),
-          order: [] as string[],
-          createdAt: now,
-          updatedAt: now,
-          parentBookId: null
-        };
-        existingData.books.push(newBook);
-        existingData.rootOrder.push(newBook.id);
-        targetBookId = newBook.id;
+      if (books.length > 0) {
+        // Add to a random existing book
+        const randomBook = books[Math.floor(Math.random() * books.length)];
+        bookId = randomBook.id;
+        bookTitle = randomBook.title;
       } else {
-        // Books exist - 50/50 chance: add to random existing book OR to root (bookId: null)
-        const rand = Math.random();
-        if (rand < 0.5) {
-          // Add to a random existing book
-          const randomBook = existingData.books[Math.floor(Math.random() * existingData.books.length)];
-          targetBookId = randomBook.id;
-        } else {
-          // Add to root level (bookId: null)
-          targetBookId = null;
+        // No books, create one first
+        const title = generateRandomTitle();
+        onCreateBook(null, title);
+        // Find the newly created book
+        const newBook = books.find(b => b.title === title);
+        if (newBook) {
+          bookId = newBook.id;
+          bookTitle = newBook.title;
         }
+        console.log('📖 [SyncDebugPanel] Created book for page:', title);
       }
 
-      // Create new page data
-      const pageTimestamp = Date.now();
-      const newPage = {
-        id: `local-page-${pageTimestamp}`,
-        bookId: targetBookId,
-        title: generateRandomTitle(),
-        url: "",
-        createdAt: pageTimestamp,
-        updatedAt: pageTimestamp,
-        faviconUrl: "",
-        tags: [],
-        source: "manual",
-        pinned: false
-      };
+      const pageTitle = generateRandomTitle();
+      const dummyUrl = `https://example.com/${Date.now()}`;
+      await onCreatePage(pageTitle, dummyUrl, null, bookId, []);
 
-      // Update the target book's order to include the new page
-      existingData.books = existingData.books.map((book: any) =>
-        book.id === targetBookId
-          ? { ...book, order: [...(book.order ?? []), newPage.id] }
-          : book
-      );
-
-      // Add the page
-      existingData.bookmarks.push(newPage);
-
-      localStorage.setItem('emperor_library', JSON.stringify(existingData));
-
-      // Reload page to pick up changes
-      window.location.reload();
-
-      alert('Random page added locally (will sync when server available)');
+      console.log('📄 [SyncDebugPanel] Created page:', pageTitle, 'in book:', bookTitle);
+      showToast(`✅ Created page: ${pageTitle}`);
     } catch (error: unknown) {
-      console.error('Failed to add random page locally:', error);
-      alert('Failed to add random page locally: ' + (error instanceof Error ? error.message : String(error)));
-    }
-  };
-
-  const addRandomDataOfflineOnly = async () => {
-    try {
-      // Direct localStorage manipulation for pure offline testing
-      const existingData = JSON.parse(localStorage.getItem('emperor_library') || '{"bookmarks":[],"books":[],"rootOrder":[],"pinnedOrder":[]}');
-
-      const newBook = {
-        id: `local-book-${Date.now()}`,
-        title: generateRandomTitle(),
-        emoji: generateRandomEmoji(),
-        order: Date.now(),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-
-      const newPage = {
-        id: `local-page-${Date.now() + 1}`,
-        bookId: newBook.id,
-        title: generateRandomTitle(),
-        url: "",
-        content: generateRandomContent(),
-        description: null,
-        faviconUrl: null,
-        thumbnailUrl: null,
-        extractedText: null,
-        screenshotUrl: null,
-        metaDescription: null,
-        status: null,
-        notes: null,
-        source: "manual",
-        rawMetadata: null,
-        order: Date.now() + 1,
-        pinned: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-
-      existingData.books.push(newBook);
-      existingData.bookmarks.push(newPage);
-      existingData.rootOrder.push(newBook.id);
-
-      localStorage.setItem('emperor_library', JSON.stringify(existingData));
-
-      // Force a page reload to pick up the localStorage changes
-      window.location.reload();
-
-      alert('Random data added directly to localStorage (pure offline - no sync)');
-    } catch (error: unknown) {
-      console.error('Failed to add offline data:', error);
-      alert('Failed to add offline data: ' + (error instanceof Error ? error.message : String(error)));
-    }
-  };
-
-  const addRandomBookServer = async () => {
-    try {
-      const response = await fetch('http://localhost:4000/books', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: generateRandomTitle(),
-          emoji: generateRandomEmoji()
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Server returned ${response.status}: ${await response.text()}`);
-      }
-
-      const newBook = await response.json();
-      alert('Random book added to server');
-      fetchAllServerData(); // Refresh server data
-    } catch (error: unknown) {
-      console.error('Failed to add random book to server:', error);
-      alert('Failed to add random book to server: ' + (error instanceof Error ? error.message : String(error)));
-    }
-  };
-
-  const addRandomPageServer = async () => {
-    try {
-      // First fetch server books to get a bookId
-      const booksRes = await fetch('http://localhost:4000/books');
-      if (!booksRes.ok) {
-        throw new Error(`Failed to fetch books: ${booksRes.status}`);
-      }
-      const books = await booksRes.json();
-      let bookId = null;
-
-      // Randomly decide: 1/3 chance for each option
-      const rand = Math.random();
-      if (rand < 0.33) {
-        // Option 1: Create new book and add page to it
-        const bookResponse = await fetch('http://localhost:4000/books', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: generateRandomTitle(),
-            emoji: generateRandomEmoji()
-          })
-        });
-
-        if (!bookResponse.ok) {
-          throw new Error(`Failed to create book: ${bookResponse.status}`);
-        }
-
-        const newBook = await bookResponse.json();
-        bookId = newBook.id;
-      } else if (rand < 0.66 && books.length > 0) {
-        // Option 2: Add to existing book
-        bookId = books[Math.floor(Math.random() * books.length)].id;
-      } else {
-        // Option 3: Add to top level (bookId = null)
-        bookId = null;
-      }
-
-      const pageResponse = await fetch('http://localhost:4000/pages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bookId,
-          title: generateRandomTitle(),
-          content: generateRandomContent()
-        })
-      });
-
-      if (!pageResponse.ok) {
-        throw new Error(`Failed to create page: ${pageResponse.status}`);
-      }
-
-      alert('Random page added to server');
-      fetchAllServerData(); // Refresh server data
-    } catch (error: unknown) {
-      console.error('Failed to add random page to server:', error);
-      alert('Failed to add random page to server: ' + (error instanceof Error ? error.message : String(error)));
+      console.error('❌ [SyncDebugPanel] Failed to create page:', error);
+      showToast(`❌ Failed to create page: ${error instanceof Error ? error.message : String(error)}`);
     }
   };
 
   return (
     <div className="fixed bottom-3 right-3 max-w-xs rounded-md bg-neutral-900/95 text-neutral-100 text-xs shadow-lg border border-neutral-700 p-3 space-y-2 z-50">
       <div className="flex items-center justify-between">
-        <span className="font-semibold tracking-wide">Sync</span>
-        <button
-          type="button"
-          onClick={() => syncWithServer()}
-          disabled={isSyncing}
-          className="px-2 py-0.5 rounded border border-neutral-500 hover:bg-neutral-800 disabled:opacity-50"
-        >
-          {isSyncing ? "Syncing…" : "Force sync"}
-        </button>
+        <span className="font-semibold tracking-wide">CouchDB</span>
+        <div className="flex gap-1">
+          {!isInitialized && (
+            <button
+              onClick={initializeCouchDB}
+              className="px-2 py-0.5 rounded border border-green-500 hover:bg-green-800 text-green-400"
+            >
+              Init
+            </button>
+          )}
+          <button
+            onClick={syncWithRemote}
+            disabled={isSyncing || !isInitialized}
+            className="px-2 py-0.5 rounded border border-neutral-500 hover:bg-neutral-800 disabled:opacity-50"
+          >
+            {isSyncing ? "Syncing…" : "Sync"}
+          </button>
+        </div>
       </div>
 
       <div className="space-y-1">
@@ -376,33 +403,28 @@ export function SyncDebugPanel() {
           <span className="text-neutral-400">Status:</span>{" "}
           <span
             className={
-              syncStatus === "error"
+              !isInitialized
+                ? "text-yellow-400"
+                : syncError
                 ? "text-red-400"
-                : syncStatus === "syncing"
+                : isSyncing
                 ? "text-amber-300"
                 : "text-emerald-300"
             }
           >
-            {syncStatus}
+            {!isInitialized ? "Not initialized" : syncError ? "Error" : isSyncing ? "Syncing" : "Ready"}
           </span>
         </div>
 
         <div>
-          <span className="text-neutral-400">Last sync:</span>{" "}
-          <span>{lastSyncAt ?? "never"}</span>
+          <span className="text-neutral-400">Books:</span>{" "}
+          <span>{books.length}</span>
         </div>
 
-        {lastSyncSummary && (
-          <div className="text-neutral-300">
-            <div>
-              Changes: <span>{lastSyncSummary.changes}</span>
-            </div>
-            <div>
-              B:{lastSyncSummary.books} / P:{lastSyncSummary.pages} / T:
-              {lastSyncSummary.tags}
-            </div>
-          </div>
-        )}
+        <div>
+          <span className="text-neutral-400">Pages:</span>{" "}
+          <span>{pages.length}</span>
+        </div>
 
         {syncError && (
           <div className="text-red-400">
@@ -411,193 +433,175 @@ export function SyncDebugPanel() {
         )}
       </div>
 
-      {/* Sync Timeline */}
+      {/* Details */}
       <div className="border-t border-neutral-700 pt-2">
         <button
-          onClick={() => setShowTimeline(!showTimeline)}
+          onClick={() => setShowDetails(!showDetails)}
           className="text-neutral-400 hover:text-neutral-200 text-xs flex items-center gap-1"
         >
-          <span>{showTimeline ? "▼" : "▶"}</span>
-          <span>Timeline ({syncEvents.length})</span>
+          <span>{showDetails ? "▼" : "▶"}</span>
+          <span>Details</span>
         </button>
 
-        {showTimeline && (
-          <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
-            {syncEvents.length === 0 ? (
-              <div className="text-neutral-500 text-xs">No sync events yet</div>
-            ) : (
-              syncEvents.slice().reverse().map((event) => (
-                <div
-                  key={event.id}
-                  className="text-xs border-l-2 pl-2 border-neutral-600"
-                >
-                  <div className="flex items-center gap-1">
-                    <span
-                      className={
-                        event.type === "error"
-                          ? "text-red-400"
-                          : event.type === "push"
-                          ? "text-blue-400"
-                          : "text-green-400"
-                      }
-                    >
-                      {event.type === "pull" ? "↓" : event.type === "push" ? "↑" : "✗"}
-                    </span>
-                    <span className="text-neutral-300">
-                      {new Date(event.timestamp).toLocaleTimeString()}
-                    </span>
-                  </div>
-                  <div className="text-neutral-400 ml-3">{event.description}</div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Server Operations */}
-      <div className="border-t border-neutral-700 pt-2">
-        <button
-          onClick={() => setShowServerOps(!showServerOps)}
-          className="text-neutral-400 hover:text-neutral-200 text-xs flex items-center gap-1"
-        >
-          <span>{showServerOps ? "▼" : "▶"}</span>
-          <span>Server Ops</span>
-        </button>
-
-        {showServerOps && (
+        {showDetails && (
           <div className="mt-2 space-y-2">
-            <div className="flex gap-1 flex-wrap">
-              <button
-                onClick={fetchServerStats}
-                className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 rounded"
-              >
-                Get Stats
-              </button>
-              <button
-                onClick={fetchAllServerData}
-                className="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 rounded"
-              >
-                Get Data
-              </button>
-              <button
-                onClick={resetSyncMetadata}
-                className="px-2 py-1 text-xs bg-yellow-600 hover:bg-yellow-700 rounded"
-              >
-                Reset Sync
-              </button>
-              <button
-                onClick={clearLocalSyncState}
-                className="px-2 py-1 text-xs bg-orange-600 hover:bg-orange-700 rounded"
-              >
-                Clear Local
-              </button>
-              <button
-                onClick={clearAllLocalData}
-                className="px-2 py-1 text-xs bg-rose-600 hover:bg-rose-700 rounded"
-              >
-                Clear Local Data
-              </button>
-              <button
-                onClick={clearAllData}
-                className="px-2 py-1 text-xs bg-red-600 hover:bg-red-700 rounded"
-              >
-                Clear All
-              </button>
-            </div>
-
-            {/* Add Random Data */}
-            <div className="border-t border-neutral-600 pt-2">
-              <div className="text-neutral-300 text-xs font-semibold mb-2">Add Random Data:</div>
+            {/* Local Creation (In-Memory) */}
+            <div className="space-y-1">
+              <div className="text-neutral-500 text-xs">Local (In-Memory):</div>
               <div className="flex gap-1 flex-wrap">
                 <button
-                  onClick={addRandomBookLocal}
-                  className="px-2 py-1 text-xs bg-purple-600 hover:bg-purple-700 rounded"
-                  title="Adds via store (will sync)"
+                  onClick={addRandomBook}
+                  className="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 rounded"
+                  title="Add random book locally (in-memory)"
                 >
-                  + Book Local
+                  + Book
                 </button>
                 <button
-                  onClick={addRandomPageLocal}
-                  className="px-2 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 rounded"
-                  title="Adds via store (will sync)"
+                  onClick={addRandomPage}
+                  className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 rounded"
+                  title="Add random page locally (in-memory)"
                 >
-                  + Page Local
-                </button>
-                <button
-                  onClick={addRandomDataOfflineOnly}
-                  className="px-2 py-1 text-xs bg-teal-600 hover:bg-teal-700 rounded"
-                  title="Direct localStorage (no sync)"
-                >
-                  + Offline Only
-                </button>
-                <button
-                  onClick={addRandomBookServer}
-                  className="px-2 py-1 text-xs bg-pink-600 hover:bg-pink-700 rounded"
-                  title="Direct to server"
-                >
-                  + Book Server
-                </button>
-                <button
-                  onClick={addRandomPageServer}
-                  className="px-2 py-1 text-xs bg-cyan-600 hover:bg-cyan-700 rounded"
-                  title="Direct to server"
-                >
-                  + Page Server
+                  + Page
                 </button>
               </div>
             </div>
 
-            {serverStats && (
-              <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded">
-                <div className="font-semibold mb-1">Server Stats:</div>
-                <div>Pages: {serverStats.local.pages}</div>
-                <div>Books: {serverStats.local.books}</div>
-                <div>Sync Records: {serverStats.sync.totalRecords}</div>
-                <div>Deleted: {serverStats.sync.deletedRecords}</div>
-                <div>Active: {serverStats.sync.activeRecords}</div>
+            {/* Backend Creation (CouchDB API) */}
+            <div className="space-y-1">
+              <div className="text-neutral-500 text-xs">Backend (CouchDB API):</div>
+              <div className="flex gap-1 flex-wrap">
+                <button
+                  onClick={createBookViaAPI}
+                  className="px-2 py-1 text-xs bg-purple-600 hover:bg-purple-700 rounded"
+                  title="Create book directly in CouchDB via API"
+                >
+                  + Book
+                </button>
+                <button
+                  onClick={createPageViaAPI}
+                  className="px-2 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 rounded"
+                  title="Create page directly in CouchDB via API"
+                >
+                  + Page
+                </button>
               </div>
-            )}
+              <div className="text-neutral-400 text-xs">
+                Status: 🟢 API endpoints ready
+              </div>
+            </div>
 
-            {serverData && (
-              <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded max-h-40 overflow-y-auto">
-                <div className="font-semibold mb-1">Server Data:</div>
-                <div>Books: {serverData.books?.length || 0}</div>
-                <div>Pages: {serverData.pages?.length || 0}</div>
-                <div>Tags: {serverData.tags?.length || 0}</div>
-                <div>Sync Records: {serverData.syncMetadata?.length || 0}</div>
+            {/* Delete Operations */}
+            <div className="space-y-1">
+              <div className="text-neutral-500 text-xs">Delete Operations:</div>
+              <div className="grid grid-cols-3 gap-1">
+                <button
+                  onClick={deleteLocalData}
+                  className="px-2 py-1 text-xs bg-red-600 hover:bg-red-700 rounded"
+                  title="Delete all local (in-memory) data"
+                >
+                  Del Local
+                </button>
+                <button
+                  onClick={deleteBackendData}
+                  className="px-2 py-1 text-xs bg-red-600 hover:bg-red-700 rounded"
+                  title="Delete all backend (CouchDB) data"
+                >
+                  Del Backend
+                </button>
+                <button
+                  onClick={deleteAllData}
+                  className="px-2 py-1 text-xs bg-red-800 hover:bg-red-900 rounded"
+                  title="Delete ALL data (local + backend)"
+                >
+                  Del All
+                </button>
+              </div>
+            </div>
 
-                {serverData.books?.length > 0 && (
-                  <div className="mt-2">
-                    <div className="font-semibold">Books:</div>
-                    {serverData.books.slice(0, 3).map((book: any) => (
-                      <div key={book.id} className="flex items-center gap-2 ml-2">
-                        <span>{book.title}</span>
-                        <button
-                          onClick={() => deleteEntity('book', book.id)}
-                          className="text-red-400 hover:text-red-300 text-xs"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+            {/* Recently Created Items (Expandable) */}
+            {(books.length > 0 || pages.length > 0) && (
+              <div className="space-y-1">
+                <button
+                  onClick={() => setShowRecent(!showRecent)}
+                  className="text-neutral-500 hover:text-neutral-300 text-xs flex items-center gap-1"
+                >
+                  <span>{showRecent ? "▼" : "▶"}</span>
+                  <span>Recently Created ({Math.min(10, books.length + pages.length)})</span>
+                </button>
 
-                {serverData.pages?.length > 0 && (
-                  <div className="mt-2">
-                    <div className="font-semibold">Pages:</div>
-                    {serverData.pages.slice(0, 5).map((page: any) => (
-                      <div key={page.id} className="flex items-center gap-2 ml-2">
-                        <span className="truncate">{page.title}</span>
-                        <button
-                          onClick={() => deleteEntity('page', page.id)}
-                          className="text-red-400 hover:text-red-300 text-xs"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
+                {showRecent && (
+                  <div className="space-y-2">
+                    {/* Combined recent items sorted by creation time */}
+                    {(() => {
+                      const allItems = [
+                        ...books.map(book => ({
+                          ...book,
+                          type: 'book' as const,
+                          displayName: book.title,
+                          icon: book.emoji || '📖',
+                          source: 'local' as 'local' | 'backend' // Can be local or backend
+                        })),
+                        ...pages.map(page => ({
+                          ...page,
+                          type: 'page' as const,
+                          displayName: page.title,
+                          icon: '📄',
+                          source: 'local' as 'local' | 'backend' // Can be local or backend
+                        }))
+                      ].sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+                      const recentItems = allItems.slice(0, 10);
+
+                      return recentItems.length > 0 ? (
+                        <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded max-h-32 overflow-y-auto">
+                          <div className="font-semibold mb-2">🕐 Recently Created Items:</div>
+                          {recentItems.map((item, index) => (
+                            <div key={`${item.type}-${item.id}`} className="text-xs mb-1 flex items-center gap-1">
+                              <span>{item.icon}</span>
+                              <span className="truncate flex-1">{item.displayName}</span>
+                              <span className={`text-xs px-1 rounded ${
+                                item.source === 'backend' ? 'bg-purple-600' :
+                                item.source === 'local' ? 'bg-green-600' : 'bg-neutral-600'
+                              }`}>
+                                {item.source === 'backend' ? 'API' : item.source === 'local' ? 'Local' : item.source}
+                              </span>
+                              <span className="text-neutral-500 text-xs">
+                                {item.createdAt ? new Date(item.createdAt).toLocaleTimeString() : ''}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="text-neutral-500 text-xs bg-neutral-800 p-2 rounded">
+                          No items created yet
+                        </div>
+                      );
+                    })()}
+
+                    {/* Separate sections for books and pages */}
+                    <div className="grid grid-cols-2 gap-2">
+                      {books.length > 0 && (
+                        <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded max-h-20 overflow-y-auto">
+                          <div className="font-semibold mb-1">📚 Books ({books.length}):</div>
+                          {books.slice(-3).map((book) => (
+                            <div key={book.id} className="text-xs truncate">
+                              {book.emoji || '📖'} {book.title}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {pages.length > 0 && (
+                        <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded max-h-20 overflow-y-auto">
+                          <div className="font-semibold mb-1">📄 Pages ({pages.length}):</div>
+                          {pages.slice(-3).map((page) => (
+                            <div key={page.id} className="text-xs truncate">
+                              {page.title}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

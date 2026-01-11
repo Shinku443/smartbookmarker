@@ -3,13 +3,7 @@ import { Button } from "../ui/Button";
 import { TagInput } from "../ui/TagInput";
 import type { RichBookmark } from "../../models/RichBookmark";
 import type { BookmarkTag } from "@smart/core";
-import {
-  logBulkOperationStart,
-  logBulkOperationCompletion,
-  logBulkOperationFailure,
-  bulkDebug,
-  bulkVerbose
-} from "../../sync/bulkLogger";
+
 
 /**
  * MultiRetagModal.tsx
@@ -46,17 +40,6 @@ export default function MultiRetagModal({ bookmarks, onSave, onClose }: Props) {
 
 function handleSave() {
   try {
-    logBulkOperationStart('multi-retag', bookmarks.length, 'MultiRetagModal');
-
-    bulkDebug('Detailed bookmark information for retag operation', {
-      bookmarkCount: bookmarks.length,
-      sampleBookmarks: bookmarks.slice(0, 3).map(b => ({
-        id: b.id,
-        title: b.title,
-        currentTags: b.tags?.map(t => t.label) || []
-      }))
-    });
-
     const newTagSet = new Set(tags.map(label => label.toLowerCase()));
 
     const updatedBookmarks = bookmarks.map(bookmark => {
@@ -73,12 +56,6 @@ function handleSave() {
           type: "user" as const
         }));
 
-      bulkVerbose(`Updated tags for bookmark "${bookmark.title}" (ID: ${bookmark.id})`, {
-        oldTags: bookmark.tags?.map(t => t.label) || [],
-        newTags: [...filteredTags, ...newTags].map(t => t.label),
-        tagCountChange: (bookmark.tags?.length || 0) - ([...filteredTags, ...newTags].length || 0)
-      });
-
       return {
         ...bookmark,
         tags: [...filteredTags, ...newTags],
@@ -86,14 +63,10 @@ function handleSave() {
       };
     });
 
-    logBulkOperationCompletion('multi-retag', updatedBookmarks.length, bookmarks.length);
     onSave(updatedBookmarks);
     onClose();
   } catch (error) {
-    logBulkOperationFailure('multi-retag', error as Error, {
-      bookmarkCount: bookmarks.length,
-      tagsBeingApplied: tags
-    });
+    console.error('Failed to save tags:', error);
     onClose();
   }
 }

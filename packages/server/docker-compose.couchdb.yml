@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  couchdb:
+    image: apache/couchdb:3.3.2
+    container_name: emperor-couchdb
+    environment:
+      - COUCHDB_USER=admin
+      - COUCHDB_PASSWORD=changeme123
+    ports:
+      - "5984:5984"
+    volumes:
+      - couchdb_data:/opt/couchdb/data
+      - ./couchdb-config:/opt/couchdb/etc/local.d
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5984/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  couchdb_data:
+    driver: local

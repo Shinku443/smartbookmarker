@@ -123,6 +123,10 @@ export default function Sidebar({
   onOpenAllBookmarks,
   onShareBook
 }: Props) {
+  // Debug: Log when component re-renders
+  console.log('🔄 [Sidebar] Re-rendering with books:', books.length);
+
+  const [showBookTree, setShowBookTree] = useState(true);
   // Search functionality state
   const [showSearchHelp, setShowSearchHelp] = useState(false);
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);

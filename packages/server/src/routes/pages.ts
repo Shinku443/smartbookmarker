@@ -1,126 +1,202 @@
 import { FastifyInstance } from "fastify";
-import { pageService } from "../services/pageService";
-import { serializeBigInts } from "../utils/helpers";
+
+// CouchDB integration for pages
+let PouchDB: any = null;
+
+// Initialize CouchDB
+try {
+  import('pouchdb').then(pouchdb => {
+    PouchDB = pouchdb.default;
+    console.log('✅ CouchDB loaded in page routes');
+  }).catch(err => {
+    console.log('❌ CouchDB not available in page routes:', err.message);
+  });
+} catch (e: any) {
+  console.log('❌ CouchDB integration failed to load:', e.message);
+}
 
 export default async function pageRoutes(app: FastifyInstance) {
-  console.log('[API] Registering page routes');
+  console.log('[API] Registering CouchDB-based page routes');
 
-  // Basic CRUD operations
-  app.get("/pages", async (req) => {
-    console.log('[API] GET /pages - fetching all pages');
-    const result = await pageService.getAll();
-    console.log(`[API] GET /pages - returning ${result.length} pages`);
-    return serializeBigInts(result);
-  });
+  // Initialize CouchDB database connection
+  let couchDB: any = null;
+  let couchDBAvailable = false;
 
-  app.get("/pages/:bookId", async (req) => {
-    const bookId = (req.params as any).bookId;
-    console.log(`[API] GET /pages/${bookId} - fetching pages for book`);
-    const result = await pageService.getAll(bookId);
-    console.log(`[API] GET /pages/${bookId} - returning ${result.length} pages`);
-    return serializeBigInts(result);
-  });
-
-  app.post("/pages", async (req) => {
-    console.log('[API] POST /pages - creating new page');
-    const result = await pageService.create(req.body as any);
-    console.log(`[API] POST /pages - created page with ID: ${(result as any).id}`);
-    return serializeBigInts(result);
-  });
-
-  app.patch("/pages/:id", async (req) => {
-    const id = (req.params as any).id;
-    console.log(`[API] PATCH /pages/${id} - updating page`);
-    const result = await pageService.update(id, req.body as any);
-    console.log(`[API] PATCH /pages/${id} - updated successfully`);
-    return serializeBigInts(result);
-  });
-
-  app.delete("/pages/:id", async (req) => {
-    const id = (req.params as any).id;
-    console.log(`[API] DELETE /pages/${id} - deleting page`);
-    const result = await pageService.delete(id);
-    console.log(`[API] DELETE /pages/${id} - deleted successfully`);
-    return serializeBigInts(result);
-  });
-
-  // Enhanced operations
-  app.post("/pages/:id/extract", async (req) => {
-    const id = (req.params as any).id;
-    const url = (req.body as any).url;
-    console.log(`[API] POST /pages/${id}/extract - extracting content for URL: ${url}`);
-    const result = await pageService.extractContent(id, url);
-    console.log(`[API] POST /pages/${id}/extract - extraction completed`);
-    return serializeBigInts(result);
-  });
-
-  app.patch("/pages/:id/status", async (req) => {
-    const id = (req.params as any).id;
-    const status = (req.body as any).status;
-    console.log(`[API] PATCH /pages/${id}/status - updating status to: ${status}`);
-    const result = await pageService.updateStatus(id, status);
-    console.log(`[API] PATCH /pages/${id}/status - status updated`);
-    return serializeBigInts(result);
-  });
-
-  app.patch("/pages/:id/notes", async (req) => {
-    const id = (req.params as any).id;
-    const notes = (req.body as any).notes;
-    console.log(`[API] PATCH /pages/${id}/notes - updating notes`);
-    const result = await pageService.addNotes(id, notes);
-    console.log(`[API] PATCH /pages/${id}/notes - notes updated`);
-    return serializeBigInts(result);
-  });
-
-  // Utility/Poweruser endpoints
-  app.get("/pages/stats", async (req) => {
-    console.log('[API] GET /pages/stats - fetching page statistics');
-    const allPages = await pageService.getAll();
-    const stats = {
-      total: allPages.length,
-      bySource: allPages.reduce((acc, page) => {
-        acc[page.source] = (acc[page.source] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>),
-      byStatus: allPages.reduce((acc, page) => {
-        const status = page.status || 'active';
-        acc[status] = (acc[status] || 0) + 1;
-        return acc;
-      }, {} as Record<string, number>),
-      recent: allPages
-        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-        .slice(0, 5)
-        .map(p => ({ id: p.id, title: p.title, createdAt: p.createdAt }))
-    };
-    console.log(`[API] GET /pages/stats - returning stats for ${allPages.length} pages`);
-    return stats;
-  });
-
-  app.post("/pages/bulk-delete", async (req) => {
-    const ids = (req.body as any).ids || [];
-    console.log(`[API] POST /pages/bulk-delete - deleting ${ids.length} pages`);
-    let deletedCount = 0;
-    for (const id of ids) {
+  const getCouchDB = () => {
+    if (!couchDB && PouchDB) {
       try {
-        await pageService.delete(id);
-        deletedCount++;
+        couchDB = new PouchDB('http://admin:changeme123@localhost:5984/bookmarks');
+        couchDBAvailable = true;
+        console.log('✅ CouchDB connection established for pages');
       } catch (error) {
-        console.error(`Failed to delete page ${id}:`, error);
+        console.error('❌ CouchDB connection failed:', error);
+        couchDBAvailable = false;
       }
     }
-    console.log(`[API] POST /pages/bulk-delete - deleted ${deletedCount} pages`);
-    return { deleted: deletedCount };
+    return couchDB;
+  };
+
+  // GET /pages - Get all pages
+  app.get("/pages", async (req) => {
+    console.log('[API] GET /pages - fetching all pages from CouchDB');
+    const db = getCouchDB();
+    if (!db) {
+      return { error: 'CouchDB not available' };
+    }
+
+    try {
+      const result = await db.allDocs({ include_docs: true });
+      const pages = result.rows
+        .filter((row: any) => row.doc && row.doc.type === 'page')
+        .map((row: any) => row.doc);
+
+      console.log(`[API] GET /pages - returning ${pages.length} pages from CouchDB`);
+      return { pages };
+    } catch (error: any) {
+      console.error('[API] CouchDB query failed:', error);
+      return { error: error.message };
+    }
   });
 
-  app.get("/pages/search", async (req) => {
-    const query = (req.query as any).q || '';
-    console.log(`[API] GET /pages/search - searching for: "${query}"`);
-    const allPages = await pageService.getAll();
-    const results = allPages.filter(page =>
-      page.title.toLowerCase().includes(query.toLowerCase()) ||
-      (page.content && page.content.toLowerCase().includes(query.toLowerCase()))
-    ).slice(0, 20); // Limit results
-    console.log(`[API] GET /pages/search - found ${results.length} results`);
-    return serializeBigInts(results);
+  // GET /pages/:bookId - Get pages for specific book
+  app.get("/pages/:bookId", async (req) => {
+    const bookId = (req.params as any).bookId;
+    console.log(`[API] GET /pages/${bookId} - fetching pages for book from CouchDB`);
+
+    const db = getCouchDB();
+    if (!db) {
+      return { error: 'CouchDB not available' };
+    }
+
+    try {
+      const result = await db.allDocs({ include_docs: true });
+      const pages = result.rows
+        .filter((row: any) => row.doc && row.doc.type === 'page' && row.doc.bookId === bookId)
+        .map((row: any) => row.doc);
+
+      console.log(`[API] GET /pages/${bookId} - returning ${pages.length} pages from CouchDB`);
+      return { pages };
+    } catch (error: any) {
+      console.error('[API] CouchDB query failed:', error);
+      return { error: error.message };
+    }
+  });
+
+  // POST /pages - Create new page
+  app.post("/pages", async (req) => {
+    const data = req.body as any;
+    console.log('[API] POST /pages - creating new page in CouchDB:', data.title);
+
+    const db = getCouchDB();
+    if (!db) {
+      return { error: 'CouchDB not available' };
+    }
+
+    try {
+      const pageDoc = {
+        _id: `page_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        type: 'page',
+        id: `page_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        bookId: data.bookId || null,
+        title: data.title,
+        url: data.url,
+        content: data.content || null,
+        description: data.description || null,
+        faviconUrl: data.faviconUrl || null,
+        thumbnailUrl: data.thumbnailUrl || null,
+        extractedText: data.extractedText || null,
+        screenshotUrl: data.screenshotUrl || null,
+        metaDescription: data.metaDescription || null,
+        status: data.status || null,
+        notes: data.notes || null,
+        source: data.source || 'manual',
+        rawMetadata: data.rawMetadata || null,
+        order: Date.now(),
+        pinned: data.pinned || false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      const result = await db.put(pageDoc);
+      console.log(`[API] POST /pages - created page with ID: ${result.id}`);
+
+      // Return the created document
+      const created = await db.get(result.id);
+      return created;
+    } catch (error: any) {
+      console.error('[API] CouchDB create failed:', error);
+      return { error: error.message };
+    }
+  });
+
+  // PATCH /pages/:id - Update page
+  app.patch("/pages/:id", async (req) => {
+    const id = (req.params as any).id;
+    const updates = req.body as any;
+    console.log(`[API] PATCH /pages/${id} - updating page in CouchDB`);
+
+    const db = getCouchDB();
+    if (!db) {
+      return { error: 'CouchDB not available' };
+    }
+
+    try {
+      const doc = await db.get(id);
+      const updatedDoc = {
+        ...doc,
+        ...updates,
+        updatedAt: new Date().toISOString()
+      };
+
+      const result = await db.put(updatedDoc);
+      console.log(`[API] PATCH /pages/${id} - updated successfully`);
+
+      // Return the updated document
+      const updated = await db.get(id);
+      return updated;
+    } catch (error: any) {
+      console.error('[API] CouchDB update failed:', error);
+      return { error: error.message };
+    }
+  });
+
+  // DELETE /pages/:id - Delete page
+  app.delete("/pages/:id", async (req) => {
+    const id = (req.params as any).id;
+    console.log(`[API] DELETE /pages/${id} - REQUEST RECEIVED`);
+    console.log(`[API] DELETE /pages/${id} - Params:`, req.params);
+
+    const db = getCouchDB();
+    console.log(`[API] DELETE /pages/${id} - CouchDB available:`, !!db);
+
+    if (!db) {
+      console.error(`[API] DELETE /pages/${id} - CouchDB not available`);
+      return { error: 'CouchDB not available' };
+    }
+
+    try {
+      console.log(`[API] DELETE /pages/${id} - Fetching document from CouchDB`);
+      const doc = await db.get(id);
+      console.log(`[API] DELETE /pages/${id} - Retrieved document:`, JSON.stringify(doc, null, 2));
+
+      const tombstoneDoc = {
+        ...doc,
+        _deleted: true,
+        deletedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      console.log(`[API] DELETE /pages/${id} - Constructed tombstone:`, JSON.stringify(tombstoneDoc, null, 2));
+      console.log(`[API] DELETE /pages/${id} - Saving tombstone to CouchDB`);
+      const result = await db.put(tombstoneDoc);
+      console.log(`[API] DELETE /pages/${id} - Tombstone saved:`, result);
+
+      console.log(`[API] DELETE /pages/${id} - Page deleted successfully`);
+      return { success: true, id, deletedAt: tombstoneDoc.deletedAt };
+    } catch (error: any) {
+      console.error(`[API] DELETE /pages/${id} - CouchDB delete failed:`, error);
+      console.error(`[API] DELETE /pages/${id} - Error details:`, error.stack);
+      return { error: error.message };
+    }
   });
 }

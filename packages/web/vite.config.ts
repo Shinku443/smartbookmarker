@@ -9,6 +9,14 @@ export default defineConfig({
       "@smart/core": path.resolve(__dirname, "../core")
     }
   },
+  optimizeDeps: {
+    include: ['pouchdb', 'pouchdb-replication', 'pouchdb-adapter-idb']
+  },
+  build: {
+    rollupOptions: {
+      external: ['pouchdb', 'pouchdb-replication']
+    }
+  },
   server: {
     proxy: {
       '/api': {
