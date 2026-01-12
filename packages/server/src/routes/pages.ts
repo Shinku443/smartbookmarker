@@ -85,18 +85,26 @@ export default async function pageRoutes(app: FastifyInstance) {
   // POST /pages - Create new page
   app.post("/pages", async (req) => {
     const data = req.body as any;
-    console.log('[API] POST /pages - creating new page in CouchDB:', data.title);
+    console.log('[API] POST /pages - REQUEST RECEIVED');
+    console.log('[API] POST /pages - Request body:', JSON.stringify(data, null, 2));
+    console.log('[API] POST /pages - Creating new page in CouchDB:', data.title);
 
     const db = getCouchDB();
+    console.log('[API] POST /pages - CouchDB available:', !!db);
+
     if (!db) {
+      console.error('[API] POST /pages - CouchDB not available');
       return { error: 'CouchDB not available' };
     }
 
     try {
+      // Use frontend-provided ID or generate one
+      const pageId = data.id || `page_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
       const pageDoc = {
-        _id: `page_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        _id: pageId,
         type: 'page',
-        id: `page_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        id: pageId,
         bookId: data.bookId || null,
         title: data.title,
         url: data.url,
@@ -117,14 +125,17 @@ export default async function pageRoutes(app: FastifyInstance) {
         updatedAt: new Date().toISOString()
       };
 
+      console.log('[API] POST /pages - About to save pageDoc:', JSON.stringify(pageDoc, null, 2));
       const result = await db.put(pageDoc);
-      console.log(`[API] POST /pages - created page with ID: ${result.id}`);
+      console.log(`[API] POST /pages - CouchDB put result:`, result);
 
       // Return the created document
       const created = await db.get(result.id);
+      console.log('[API] POST /pages - Retrieved created document:', JSON.stringify(created, null, 2));
       return created;
     } catch (error: any) {
-      console.error('[API] CouchDB create failed:', error);
+      console.error('[API] POST /pages - CouchDB create failed:', error);
+      console.error('[API] POST /pages - Error details:', error.stack);
       return { error: error.message };
     }
   });

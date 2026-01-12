@@ -500,8 +500,12 @@ export function useBookmarks() {
     userTagLabels: string[] = []
   ) {
     try {
+      // Generate ID on frontend (like books do)
+      const frontendId = `page_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
       // Try to create via API first (for scraping)
       const apiBookmark = await createPage({
+        id: frontendId, // Send frontend-generated ID
         bookId: bookId ?? undefined,
         title,
         url,

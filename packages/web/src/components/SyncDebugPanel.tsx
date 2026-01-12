@@ -3,6 +3,97 @@ import { useBookmarks } from "../hooks/useBookmarks";
 import { useBookmarksStore } from "../store/useBookmarksStore";
 import type { RichBookmark } from "../models/RichBookmark";
 
+// Scenario Simulator Types
+type ActorId = "A" | "B" | "Backend";
+type EntityType = "page" | "book";
+type ActionType = "create" | "update" | "delete-local" | "delete-backend" | "reorder" | "pin" | "sync" | "offline" | "online";
+
+interface ScenarioStep {
+  id: string;
+  label?: string;
+  actor: ActorId;
+  entity?: EntityType;
+  action: ActionType;
+  args?: Record<string, unknown>;
+}
+
+interface Scenario {
+  id: string;
+  name: string;
+  description?: string;
+  steps: ScenarioStep[];
+}
+
+interface ExecutedStep {
+  step: ScenarioStep;
+  status: "pending" | "executed" | "error";
+  error?: string;
+}
+
+interface Snapshot {
+  stepId: string;
+  label: string;
+  createdAt: string;
+  localA: unknown;
+  localB: unknown;
+  couchdb: unknown;
+  mutationsA: unknown[];
+  mutationsB: unknown[];
+  tombstonesA: unknown[];
+  tombstonesB: unknown[];
+}
+
+// Scenario definitions
+const scenarios: Scenario[] = [
+  {
+    id: 'edit-vs-delete',
+    name: 'Edit vs Delete Conflict',
+    description: 'Test what happens when one device edits an item and another deletes it.',
+    steps: [
+      { id: '1', actor: 'A', entity: 'page', action: 'create', label: 'A creates page' },
+      { id: '2', actor: 'A', action: 'sync', label: 'A syncs to server' },
+      { id: '3', actor: 'B', action: 'sync', label: 'B syncs from server' },
+      { id: '4', actor: 'A', entity: 'page', action: 'update', label: 'A edits the page' },
+      { id: '5', actor: 'B', entity: 'page', action: 'delete-local', label: 'B deletes the page locally' },
+      { id: '6', actor: 'A', action: 'sync', label: 'A syncs edit to server' },
+      { id: '7', actor: 'B', action: 'sync', label: 'B syncs delete to server' },
+      { id: '8', actor: 'A', action: 'sync', label: 'A pulls latest changes' },
+      { id: '9', actor: 'B', action: 'sync', label: 'B pulls latest changes' }
+    ]
+  },
+  {
+    id: 'offline-deletes',
+    name: 'Offline Deletes',
+    description: 'Test deletions while offline and sync behavior.',
+    steps: [
+      { id: '1', actor: 'A', entity: 'book', action: 'create', label: 'A creates book' },
+      { id: '2', actor: 'A', action: 'sync', label: 'A syncs to server' },
+      { id: '3', actor: 'B', action: 'sync', label: 'B syncs from server' },
+      { id: '4', actor: 'A', action: 'offline', label: 'A goes offline' },
+      { id: '5', actor: 'A', entity: 'book', action: 'delete-local', label: 'A deletes book while offline' },
+      { id: '6', actor: 'A', action: 'online', label: 'A comes back online' },
+      { id: '7', actor: 'A', action: 'sync', label: 'A syncs delete to server' },
+      { id: '8', actor: 'B', action: 'sync', label: 'B pulls delete from server' }
+    ]
+  },
+  {
+    id: 'reorder-conflict',
+    name: 'Reorder Conflict',
+    description: 'Test what happens when two devices reorder the same items differently.',
+    steps: [
+      { id: '1', actor: 'A', entity: 'page', action: 'create', label: 'A creates page 1' },
+      { id: '2', actor: 'A', entity: 'page', action: 'create', label: 'A creates page 2' },
+      { id: '3', actor: 'A', entity: 'page', action: 'create', label: 'A creates page 3' },
+      { id: '4', actor: 'A', action: 'sync', label: 'A syncs to server' },
+      { id: '5', actor: 'B', action: 'sync', label: 'B syncs from server' },
+      { id: '6', actor: 'A', entity: 'page', action: 'reorder', label: 'A reorders: 3,1,2' },
+      { id: '7', actor: 'B', entity: 'page', action: 'reorder', label: 'B reorders: 2,3,1' },
+      { id: '8', actor: 'A', action: 'sync', label: 'A syncs reorder' },
+      { id: '9', actor: 'B', action: 'sync', label: 'B syncs reorder' }
+    ]
+  }
+];
+
 // Simple toast notification system
 let toastTimeouts: NodeJS.Timeout[] = [];
 
@@ -84,7 +175,7 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
     onCreateBook(null, input.title); // null = root level
   };
 
-  const createPage = async (input: { bookId: string; title: string; content?: string }) => {
+  const createPage = async (input: { bookId?: string | null; title: string; content?: string }) => {
     // Create with a dummy URL to ensure it shows up in UI
     const dummyUrl = `https://example.com/${Date.now()}`;
     await onCreatePage(input.title, dummyUrl, null, input.bookId || null, []);
@@ -168,29 +259,19 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
     }
   };
 
-  // Get delete functions from store
-  const { markLocalDeleted } = useBookmarksStore();
+  // Get store state and functions
+  const { deleteAllLocalData, pendingMutations } = useBookmarksStore();
 
   // Delete functions
   const deleteLocalData = async () => {
     try {
-      console.log('🗑️ Deleting all local data (offline-first)...');
+      console.log('🗑️ Deleting all local CouchDB store data...');
 
-      // Use offline-first delete: mark as deleted locally and queue for sync
-      const booksToDelete = [...books];
-      for (const book of booksToDelete) {
-        markLocalDeleted('book', book.id);
-        console.log(`🗑️ Marked local book as deleted: ${book.title}`);
-      }
+      // Clear the entire CouchDB store
+      await deleteAllLocalData();
 
-      // Delete all pages from local store
-      const pagesToDelete = [...pages];
-      for (const page of pagesToDelete) {
-        markLocalDeleted('page', page.id);
-        console.log(`🗑️ Marked local page as deleted: ${page.title}`);
-      }
-
-      showToast('🗑️ All local data marked for deletion');
+      console.log('🗑️ All local CouchDB store data cleared');
+      showToast('🗑️ All local store data deleted');
     } catch (error: unknown) {
       console.error('❌ Failed to delete local data:', error);
       showToast(`❌ Delete local failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -301,6 +382,14 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
 
   const [showDetails, setShowDetails] = useState(false);
   const [showRecent, setShowRecent] = useState(false);
+  const [showMutations, setShowMutations] = useState(false);
+  const [showTombstones, setShowTombstones] = useState(false);
+  const [showSimulator, setShowSimulator] = useState(false);
+  const [currentScenario, setCurrentScenario] = useState<Scenario | null>(null);
+  const [executedSteps, setExecutedSteps] = useState<ExecutedStep[]>([]);
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  const [isRunningScenario, setIsRunningScenario] = useState(false);
 
   // Random data generation functions
   const generateRandomTitle = () => {
@@ -373,6 +462,91 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
       console.error('❌ [SyncDebugPanel] Failed to create page:', error);
       showToast(`❌ Failed to create page: ${error instanceof Error ? error.message : String(error)}`);
     }
+  };
+
+  // Scenario Simulator Functions
+  const runNextStep = async () => {
+    if (!currentScenario || isRunningScenario || currentStepIndex >= currentScenario.steps.length) {
+      return;
+    }
+
+    setIsRunningScenario(true);
+
+    try {
+      const step = currentScenario.steps[currentStepIndex];
+
+      // Execute the step based on actor and action
+      if (step.action === 'sync') {
+        console.log(`🎭 Executing step: ${step.actor} syncs`);
+        await triggerSync();
+      } else if (step.action === 'create' && step.entity) {
+        console.log(`🎭 Executing step: ${step.actor} creates ${step.entity}`);
+        if (step.entity === 'page') {
+          await createPage({ bookId: undefined, title: `Test Page ${Date.now()}` });
+        } else if (step.entity === 'book') {
+          await createBook({ title: `Test Book ${Date.now()}` });
+        }
+      } else if (step.action === 'delete-local' && step.entity) {
+        console.log(`🎭 Executing step: ${step.actor} deletes ${step.entity} locally`);
+        // For now, just delete all local data as a placeholder
+        await deleteLocalData();
+      } else {
+        console.log(`🎭 Skipping unsupported step: ${step.action}`);
+      }
+
+      // Mark step as executed
+      const executedStep: ExecutedStep = {
+        step,
+        status: 'executed'
+      };
+
+      setExecutedSteps(prev => [...prev, executedStep]);
+      setCurrentStepIndex(prev => prev + 1);
+
+      // Capture snapshot
+      const snapshot: Snapshot = {
+        stepId: step.id,
+        label: step.label || `${step.actor} ${step.action}`,
+        createdAt: new Date().toISOString(),
+        localA: { books: books.length, pages: pages.length },
+        localB: { books: 0, pages: 0 }, // Placeholder for multi-device
+        couchdb: { status: 'connected' },
+        mutationsA: pendingMutations,
+        mutationsB: [],
+        tombstonesA: [],
+        tombstonesB: []
+      };
+
+      setSnapshots(prev => [...prev, snapshot]);
+
+    } catch (error) {
+      console.error('❌ Scenario step failed:', error);
+
+      const executedStep: ExecutedStep = {
+        step: currentScenario.steps[currentStepIndex],
+        status: 'error',
+        error: error instanceof Error ? error.message : String(error)
+      };
+
+      setExecutedSteps(prev => [...prev, executedStep]);
+    } finally {
+      setIsRunningScenario(false);
+    }
+  };
+
+  const runAllSteps = async () => {
+    if (!currentScenario) return;
+
+    for (let i = currentStepIndex; i < currentScenario.steps.length; i++) {
+      await runNextStep();
+    }
+  };
+
+  const resetScenario = () => {
+    setExecutedSteps([]);
+    setSnapshots([]);
+    setCurrentStepIndex(0);
+    setIsRunningScenario(false);
   };
 
   return (
@@ -606,6 +780,211 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
                 )}
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      {/* Mutation Queue Inspector */}
+      <div className="border-t border-neutral-700 pt-2">
+        <button
+          onClick={() => setShowMutations(!showMutations)}
+          className="text-neutral-400 hover:text-neutral-200 text-xs flex items-center gap-1"
+        >
+          <span>{showMutations ? "▼" : "▶"}</span>
+          <span>Mutation Queue ({pendingMutations.length})</span>
+        </button>
+
+        {showMutations && (
+          <div className="mt-2 space-y-2">
+            <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded max-h-40 overflow-y-auto">
+              <div className="font-semibold mb-2">🔄 Pending Mutations:</div>
+              {pendingMutations.length === 0 ? (
+                <div className="text-neutral-500">No pending mutations</div>
+              ) : (
+                pendingMutations.map((mutation) => (
+                  <div key={mutation.id} className="text-xs mb-2 p-2 bg-neutral-700 rounded">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="font-medium">{mutation.type.toUpperCase()} {mutation.entity}</span>
+                      <span className={`px-1 rounded text-xs ${
+                        mutation.synced ? 'bg-green-600' : 'bg-yellow-600'
+                      }`}>
+                        {mutation.synced ? 'synced' : 'pending'}
+                      </span>
+                    </div>
+                    <div className="text-neutral-400">ID: {mutation.id}</div>
+                    <div className="text-neutral-400">Time: {new Date(mutation.timestamp).toLocaleTimeString()}</div>
+                    {mutation.data && Object.keys(mutation.data).length > 0 && (
+                      <div className="text-neutral-400 mt-1">
+                        Data: {JSON.stringify(mutation.data).slice(0, 50)}...
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Tombstone Inspector */}
+      <div className="border-t border-neutral-700 pt-2">
+        <button
+          onClick={() => setShowTombstones(!showTombstones)}
+          className="text-neutral-400 hover:text-neutral-200 text-xs flex items-center gap-1"
+        >
+          <span>{showTombstones ? "▼" : "▶"}</span>
+          <span>Tombstones</span>
+        </button>
+
+        {showTombstones && (
+          <div className="mt-2 space-y-2">
+            <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded">
+              <div className="font-semibold mb-2">🪦 Tombstone Inspector:</div>
+              <div className="text-neutral-500 mb-2">
+                Tombstones are deleted items that persist for sync purposes.
+                They contain metadata about when and why items were deleted.
+              </div>
+
+              {/* Local Tombstones (from store) */}
+              <div className="mb-3">
+                <div className="font-medium mb-1">Local Tombstones:</div>
+                <div className="text-neutral-500 text-xs">
+                  No local tombstone tracking implemented yet.
+                  Items are marked deleted: true in the store.
+                </div>
+              </div>
+
+              {/* Backend Tombstones */}
+              <div>
+                <div className="font-medium mb-1">Backend Tombstones (CouchDB):</div>
+                <div className="text-neutral-500 text-xs">
+                  Deleted documents in CouchDB with _deleted: true.
+                  View in CouchDB admin: http://localhost:5984/_utils/
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Sync Scenario Simulator */}
+      <div className="border-t border-neutral-700 pt-2">
+        <button
+          onClick={() => setShowSimulator(!showSimulator)}
+          className="text-neutral-400 hover:text-neutral-200 text-xs flex items-center gap-1"
+        >
+          <span>{showSimulator ? "▼" : "▶"}</span>
+          <span>Scenario Simulator</span>
+        </button>
+
+        {showSimulator && (
+          <div className="mt-2 space-y-2">
+            <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded">
+              <div className="font-semibold mb-2">🎭 Sync Scenario Simulator:</div>
+              <div className="text-neutral-500 mb-3 text-xs">
+                Test complex sync scenarios with multiple actors and steps.
+                See state changes at each step for debugging conflicts.
+              </div>
+
+              {/* Preset Scenarios */}
+              <div className="mb-3">
+                <div className="font-medium mb-2">📋 Preset Scenarios:</div>
+                <div className="space-y-1">
+                  <button
+                    onClick={() => setCurrentScenario(scenarios.find(s => s.id === 'edit-vs-delete') || null)}
+                    className="block w-full text-left px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 rounded"
+                  >
+                    Edit vs Delete Conflict
+                  </button>
+                  <button
+                    onClick={() => setCurrentScenario(scenarios.find(s => s.id === 'offline-deletes') || null)}
+                    className="block w-full text-left px-2 py-1 text-xs bg-green-600 hover:bg-green-700 rounded"
+                  >
+                    Offline Deletes
+                  </button>
+                  <button
+                    onClick={() => setCurrentScenario(scenarios.find(s => s.id === 'reorder-conflict') || null)}
+                    className="block w-full text-left px-2 py-1 text-xs bg-purple-600 hover:bg-purple-700 rounded"
+                  >
+                    Reorder Conflict
+                  </button>
+                </div>
+              </div>
+
+              {/* Current Scenario */}
+              {currentScenario && (
+                <div className="mb-3">
+                  <div className="font-medium mb-2">🎯 Current Scenario: {currentScenario.name}</div>
+                  {currentScenario.description && (
+                    <div className="text-neutral-400 text-xs mb-2">{currentScenario.description}</div>
+                  )}
+
+                  {/* Timeline View */}
+                  <div className="mb-3">
+                    <div className="font-medium mb-2">⏱️ Timeline:</div>
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {currentScenario.steps.map((step, index) => {
+                        const executedStep = executedSteps.find(es => es.step.id === step.id);
+                        return (
+                          <div key={step.id} className="flex items-center gap-2 text-xs">
+                            <span className="font-mono">{index + 1}.</span>
+                            <span className={`px-1 rounded text-xs ${
+                              executedStep?.status === 'executed' ? 'bg-green-600' :
+                              executedStep?.status === 'error' ? 'bg-red-600' : 'bg-neutral-600'
+                            }`}>
+                              {executedStep?.status || 'pending'}
+                            </span>
+                            <span>{step.label || `${step.actor} ${step.action}`}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Controls */}
+                  <div className="flex gap-1 mb-3">
+                    <button
+                      onClick={() => runNextStep()}
+                      disabled={isRunningScenario || currentStepIndex >= currentScenario.steps.length}
+                      className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded"
+                    >
+                      {isRunningScenario ? 'Running...' : 'Run Next'}
+                    </button>
+                    <button
+                      onClick={() => runAllSteps()}
+                      disabled={isRunningScenario || currentScenario.steps.length === 0}
+                      className="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded"
+                    >
+                      Run All
+                    </button>
+                    <button
+                      onClick={() => resetScenario()}
+                      className="px-2 py-1 text-xs bg-neutral-600 hover:bg-neutral-700 rounded"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Snapshot Viewer */}
+              {snapshots.length > 0 && (
+                <div>
+                  <div className="font-medium mb-2">📸 State Snapshots:</div>
+                  <div className="space-y-1">
+                    {snapshots.map((snapshot, index) => (
+                      <div key={snapshot.stepId} className="text-xs">
+                        <div className="font-medium">Step {index + 1}: {snapshot.label}</div>
+                        <div className="text-neutral-400 pl-2">
+                          Books A: {(snapshot.localA as any)?.books?.length || 0} |
+                          Books B: {(snapshot.localB as any)?.books?.length || 0}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

@@ -1,5 +1,6 @@
 export type PageDto = {
   id: string;
+  _id?: string; // CouchDB document ID
   bookId: string | null;
   title: string;
   content: string | null;
@@ -45,6 +46,7 @@ export async function fetchPages(): Promise<PageDto[]> {
 }
 
 export async function createPage(input: {
+  id?: string; // Add optional id parameter
   bookId?: string | null;
   title: string;
   content?: string | null;
