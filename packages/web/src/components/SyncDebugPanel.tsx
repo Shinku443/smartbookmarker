@@ -259,10 +259,7 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
     }
   };
 
-  // Debug: Log when component re-renders with detailed data
-  console.log('🔄 [SyncDebugPanel] Re-rendering with books:', books.length, 'pages:', pages.length);
-  console.log('📊 [SyncDebugPanel] Books data:', books.map(b => ({ id: b.id, title: b.title })));
-  console.log('📊 [SyncDebugPanel] Pages data:', pages.slice(-3).map(p => ({ id: p.id, title: p.title, bookId: p.bookId })));
+  // Component re-renders with updated data from props
 
   // Use the same functions passed from App
   const createBook = async (input: { title: string; emoji?: string | null }) => {

@@ -35,6 +35,46 @@ export function useBookmarks() {
   const [loading, setLoading] = useState(true);
   const [updateCounter, setUpdateCounter] = useState(0); // Force re-render counter
 
+  /**
+   * reloadData
+   * ----------
+   * Reloads data from localStorage and updates state.
+   * Used when external changes to localStorage occur (like during sync).
+   */
+  const reloadData = async () => {
+    console.log('[useBookmarks] Reloading data from localStorage...');
+    const loaded = await loadBookmarks();
+    const data = loaded as PersistedData;
+
+    if (Array.isArray(data)) {
+      // Legacy format: just an array of bookmarks
+      const arr = data;
+      setBookmarks(arr);
+      setBooks([]);
+      setRootOrder(arr.map((b) => b.id));
+      setPinnedOrder(arr.filter((b) => b.pinned).map((b) => b.id));
+    } else {
+      // New structured format
+      const nextBookmarks = data.bookmarks ?? [];
+      const nextBooks = data.books ?? [];
+      setBookmarks(nextBookmarks);
+      setBooks(nextBooks);
+      setRootOrder(
+        data.rootOrder && data.rootOrder.length
+          ? data.rootOrder
+          : nextBookmarks.map((b) => b.id)
+      );
+      setPinnedOrder(
+        data.pinnedOrder && data.pinnedOrder.length
+          ? data.pinnedOrder
+          : nextBookmarks.filter((b) => b.pinned).map((b) => b.id)
+      );
+    }
+
+    console.log(`[useBookmarks] Reloaded: ${data.books?.length || 0} books, ${data.bookmarks?.length || 0} bookmarks`);
+    setUpdateCounter(prev => prev + 1); // Force re-render
+  };
+
 
 
   /**
@@ -45,7 +85,8 @@ export function useBookmarks() {
    * Initializes ordering arrays if not present.
    */
   useEffect(() => {
-    loadBookmarks().then((loaded) => {
+    const loadData = async () => {
+      const loaded = await loadBookmarks();
       const data = loaded as PersistedData;
 
       if (Array.isArray(data)) {
@@ -74,7 +115,21 @@ export function useBookmarks() {
       }
 
       setLoading(false);
-    });
+    };
+
+    loadData();
+
+    // Listen for reload events (triggered by sync operations)
+    const handleReload = () => {
+      console.log('[useBookmarks] Received reload event, reloading data...');
+      loadData();
+    };
+
+    window.addEventListener('bookmarks-reload', handleReload);
+
+    return () => {
+      window.removeEventListener('bookmarks-reload', handleReload);
+    };
   }, []);
 
 

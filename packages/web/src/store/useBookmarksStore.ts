@@ -1062,6 +1062,9 @@ export const useBookmarksStore = create<State>((set, get) => ({
         syncError: null
       });
 
+      // Notify other components (like useBookmarks hook) to reload data
+      window.dispatchEvent(new CustomEvent('bookmarks-reload'));
+
       console.log('✅ [SYNC] LocalStorage sync to/from CouchDB completed');
       console.log(`📊 Final state: ${syncedData.books.length} books, ${syncedData.bookmarks.length} pages`);
 
