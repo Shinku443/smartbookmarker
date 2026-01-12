@@ -51,6 +51,7 @@ export async function createPage(input: {
   title: string;
   content?: string | null;
   url?: string;
+  tags?: string[]; // Add tags parameter
 }): Promise<PageDto> {
   const res = await fetch(BASE, {
     method: "POST",

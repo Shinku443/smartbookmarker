@@ -509,7 +509,8 @@ export function useBookmarks() {
         bookId: bookId ?? undefined,
         title,
         url,
-        content: "" // Will be filled by scraping
+        content: "", // Will be filled by scraping
+        tags: userTagLabels // Pass tags to API
       });
 
       // Convert API response to RichBookmark format

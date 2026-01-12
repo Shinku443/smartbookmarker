@@ -82,6 +82,7 @@ type State = {
   // CouchDB operations
   initializeCouchDB: () => Promise<void>;
   syncWithRemote: () => Promise<void>;
+  syncLocalStorageToCouchDB: () => Promise<void>;
   loadFromLocalDB: () => Promise<void>;
   startBackgroundSync: () => void;
 
@@ -261,55 +262,76 @@ export const useBookmarksStore = create<State>((set, get) => ({
   },
 
   async syncWithRemote() {
-    // In in-memory mode, simulate a sync operation
-    if (!get().localDB || !get().remoteDB) {
-      console.log('🔄 Simulating sync (in-memory mode)...');
-      set({ isSyncing: true, syncError: null });
+    console.log('🔄 [SYNC] Manual sync triggered');
 
-      // Simulate network delay
-      await new Promise(resolve => setTimeout(resolve, 1000));
+    // Check if we have real PouchDB or just simulation
+    const hasPouchDB = get().localDB && get().remoteDB;
+    console.log('🔄 [SYNC] PouchDB available:', hasPouchDB);
 
-      set({
-        isSyncing: false,
-        lastSyncAt: new Date().toISOString(),
-        syncError: null
-      });
+    if (!hasPouchDB) {
+      console.log('⚠️ [SYNC] PouchDB not available - syncing localStorage data to CouchDB API');
 
-      console.log('✅ Sync simulation completed successfully');
+      // Sync localStorage data to CouchDB API directly
+      await get().syncLocalStorageToCouchDB();
       return;
     }
 
-    // Real CouchDB sync when available
+    // Real PouchDB sync
+    console.log('🔄 [SYNC] Processing pending mutations...');
+    await get().processPendingMutations();
+
     const { localDB, remoteDB } = get();
     set({ isSyncing: true, syncError: null });
 
     try {
-      console.log('🔄 Starting manual sync...');
+      console.log('🔄 [SYNC] Starting manual CouchDB sync...');
+      console.log('🔄 [SYNC] Local DB ready:', !!localDB);
+      console.log('🔄 [SYNC] Remote DB ready:', !!remoteDB);
+
+      // Test remote connection first
+      try {
+        console.log('🔄 [SYNC] Testing remote connection...');
+        const remoteInfo = await remoteDB!.info();
+        console.log('✅ [SYNC] Remote connection OK:', remoteInfo);
+      } catch (connError: any) {
+        console.error('❌ [SYNC] Remote connection failed:', connError);
+        throw new Error(`Remote connection failed: ${connError.message}`);
+      }
 
       // One-time sync
+      console.log('🔄 [SYNC] Starting PouchDB sync...');
       const sync = PouchDB.sync(localDB, remoteDB, {
         live: false,
         retry: false
       });
 
       await new Promise<void>((resolve, reject) => {
-        sync.on('complete', () => {
-          console.log('✅ Manual sync completed successfully');
+        sync.on('complete', (info: any) => {
+          console.log('✅ [SYNC] PouchDB sync completed:', info);
           resolve();
         });
 
         sync.on('error', (err: any) => {
-          console.error('❌ Manual sync failed:', err);
+          console.error('❌ [SYNC] PouchDB sync failed:', err);
           reject(err);
+        });
+
+        sync.on('change', (change: any) => {
+          console.log('🔄 [SYNC] PouchDB sync change:', change);
         });
       });
 
+      console.log('✅ [SYNC] Manual sync completed successfully');
+
       // Reload data after sync
+      console.log('🔄 [SYNC] Reloading local data...');
       await get().loadFromLocalDB();
+
       set({ isSyncing: false, lastSyncAt: new Date().toISOString() });
+      console.log('✅ [SYNC] All operations completed');
 
     } catch (error: any) {
-      console.error('❌ Sync failed:', error);
+      console.error('❌ [SYNC] Sync failed:', error);
       set({
         isSyncing: false,
         syncError: error.message || 'Sync failed'
@@ -360,6 +382,13 @@ export const useBookmarksStore = create<State>((set, get) => ({
     set(state => ({
       books: [...state.books, book].sort((a, b) => (a.order || 0) - (b.order || 0))
     }));
+
+    // Queue mutation for sync
+    get().queueMutation({
+      id: book.id,
+      type: 'create',
+      entity: 'book'
+    });
 
     console.log('📖 [STORE] Book added to in-memory state, total books:', get().books.length);
     return book;
@@ -413,6 +442,13 @@ export const useBookmarksStore = create<State>((set, get) => ({
     set(state => ({
       pages: [...state.pages, page].sort((a, b) => (a.order || 0) - (b.order || 0))
     }));
+
+    // Queue mutation for sync
+    get().queueMutation({
+      id: page.id,
+      type: 'create',
+      entity: 'page'
+    });
 
     console.log('📄 Page created:', page.title);
     return page;
@@ -585,25 +621,39 @@ export const useBookmarksStore = create<State>((set, get) => ({
   },
 
   async processPendingMutations() {
-    const { pendingMutations, remoteDB } = get();
+    const { pendingMutations, remoteDB, localDB } = get();
     const unsyncedMutations = pendingMutations.filter(m => !m.synced);
 
-    if (unsyncedMutations.length === 0 || !remoteDB) {
+    if (unsyncedMutations.length === 0 || !remoteDB || !localDB) {
       return;
     }
 
     console.log(`🔄 Processing ${unsyncedMutations.length} pending mutations`);
 
+    // ⭐ LOCAL-FIRST RULE: Push local changes to remote first
     for (const mutation of unsyncedMutations) {
       try {
-        if (mutation.type === 'delete') {
-          // Send delete to server
-          const doc = await remoteDB.get(mutation.id);
+        if (mutation.type === 'create') {
+          // Push new local items to remote
+          const localDoc = await localDB.get(mutation.id);
+          await remoteDB.put(localDoc);
+          console.log(`📤 Pushed ${mutation.entity} ${mutation.id} to remote`);
+        } else if (mutation.type === 'update') {
+          // Push local updates to remote
+          const localDoc = await localDB.get(mutation.id);
+          await remoteDB.put(localDoc);
+          console.log(`📤 Pushed ${mutation.entity} ${mutation.id} update to remote`);
+        } else if (mutation.type === 'delete') {
+          // Send tombstone to remote
+          const localDoc = await localDB.get(mutation.id);
           await remoteDB.put({
-            ...doc,
-            _deleted: true
+            ...localDoc,
+            _deleted: true,
+            deletedAt: mutation.data?.deletedAt || new Date().toISOString()
           });
+          console.log(`🗑️ Pushed ${mutation.entity} ${mutation.id} tombstone to remote`);
         }
+
         // Mark as synced
         set(state => ({
           pendingMutations: state.pendingMutations.map(m =>
@@ -617,11 +667,223 @@ export const useBookmarksStore = create<State>((set, get) => ({
       }
     }
 
+    // ⭐ LOCAL-FIRST RULE: Then pull remote changes and merge
+    try {
+      console.log('🔄 Pulling remote changes and merging...');
+
+      // Get all remote documents
+      const remoteDocs = await remoteDB.allDocs({ include_docs: true });
+
+      for (const row of remoteDocs.rows) {
+        if (!row.doc || row.doc._id.startsWith('_')) continue;
+
+        const remoteDoc = row.doc as any;
+        const localDoc = await localDB.get(remoteDoc._id).catch(() => null) as any;
+
+        if (!localDoc) {
+          // ⭐ LOCAL-FIRST: Remote has item, local doesn't → pull it
+          await localDB.put(remoteDoc);
+          console.log(`📥 Pulled ${remoteDoc.type} ${remoteDoc._id} from remote`);
+        } else if (remoteDoc._deleted && !localDoc._deleted) {
+          // Remote has tombstone, local doesn't → check timestamps
+          const remoteDeletedAt = new Date(remoteDoc.deletedAt || 0);
+          const localUpdatedAt = new Date(localDoc.updatedAt || 0);
+
+          if (remoteDeletedAt > localUpdatedAt) {
+            // ⭐ Delete wins: apply tombstone
+            await localDB.put({
+              ...localDoc,
+              _deleted: true,
+              deletedAt: remoteDoc.deletedAt
+            });
+            console.log(`🗑️ Applied remote tombstone for ${remoteDoc._id}`);
+          } else {
+            // ⭐ Local wins: resurrect by pushing local version
+            await remoteDB.put(localDoc);
+            console.log(`🔄 Local ${remoteDoc._id} resurrected (newer than remote delete)`);
+          }
+        } else if (!remoteDoc._deleted && localDoc._deleted) {
+          // Local has tombstone, remote doesn't → check timestamps
+          const localDeletedAt = new Date(localDoc.deletedAt || 0);
+          const remoteUpdatedAt = new Date(remoteDoc.updatedAt || 0);
+
+          if (remoteUpdatedAt > localDeletedAt) {
+            // ⭐ Remote wins: resurrect locally
+            await localDB.put(remoteDoc);
+            console.log(`🔄 Remote ${remoteDoc._id} resurrected locally`);
+          } else {
+            // ⭐ Local delete wins: push tombstone
+            await remoteDB.put({
+              ...remoteDoc,
+              _deleted: true,
+              deletedAt: localDoc.deletedAt
+            });
+            console.log(`🗑️ Local tombstone pushed for ${remoteDoc._id}`);
+          }
+        } else if (!remoteDoc._deleted && !localDoc._deleted) {
+          // Both exist and not deleted → compare timestamps
+          const remoteTime = new Date(remoteDoc.updatedAt || 0);
+          const localTime = new Date(localDoc.updatedAt || 0);
+
+          if (remoteTime > localTime) {
+            // Remote is newer → pull it
+            await localDB.put(remoteDoc);
+            console.log(`📥 Updated ${remoteDoc._id} from remote (newer)`);
+          } else if (localTime > remoteTime) {
+            // Local is newer → push it
+            await remoteDB.put(localDoc);
+            console.log(`📤 Updated ${remoteDoc._id} to remote (newer)`);
+          }
+        }
+      }
+
+      console.log('✅ Sync merge completed');
+    } catch (error) {
+      console.error('❌ Failed to pull and merge remote changes:', error);
+    }
+
     // Clean up old synced mutations (keep last 100)
     set(state => ({
       pendingMutations: state.pendingMutations
         .filter(m => m.synced || Date.now() - new Date(m.timestamp).getTime() < 24 * 60 * 60 * 1000) // Keep unsynced or last 24h
         .slice(-100) // Keep last 100
     }));
+
+    // Reload data after sync
+    await get().loadFromLocalDB();
+  },
+
+  // Sync localStorage data to CouchDB API (when PouchDB is not available)
+  async syncLocalStorageToCouchDB() {
+    console.log('🔄 [SYNC] Syncing localStorage data to CouchDB API...');
+
+    // Import the localStorage loading function
+    const { loadBookmarks } = await import('../storage/webStorage');
+
+    try {
+      // Load data from localStorage
+      const localData = await loadBookmarks();
+      console.log('📚 Loaded local data:', {
+        books: localData.books?.length || 0,
+        bookmarks: localData.bookmarks?.length || 0
+      });
+
+      // Convert and sync books
+      if (localData.books && localData.books.length > 0) {
+        console.log('📖 Syncing books to CouchDB...');
+
+        // First, get all existing books from CouchDB to check for duplicates
+        let existingBooks: any[] = [];
+        try {
+          const allBooksResponse = await fetch('http://localhost:4000/books');
+          if (allBooksResponse.ok) {
+            const allBooksData = await allBooksResponse.json();
+            existingBooks = allBooksData.books || [];
+            console.log(`📋 Found ${existingBooks.length} existing books in CouchDB`);
+          }
+        } catch (error) {
+          console.warn('⚠️ Could not fetch existing books:', error);
+        }
+
+        for (const book of localData.books) {
+          try {
+            // Check if book already exists by title (not ID, since IDs differ)
+            const existingBook = existingBooks.find(b => b.title === book.name);
+
+            if (!existingBook) {
+              // Book doesn't exist, create it
+              const createResponse = await fetch('http://localhost:4000/books', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  title: book.name,
+                  emoji: book.icon || null
+                })
+              });
+
+              if (createResponse.ok) {
+                console.log(`✅ Synced book: ${book.name}`);
+              } else {
+                const errorText = await createResponse.text();
+                console.warn(`⚠️ Failed to sync book: ${book.name} - ${createResponse.status}: ${errorText}`);
+              }
+            } else {
+              console.log(`ℹ️ Book already exists: ${book.name}`);
+            }
+          } catch (error) {
+            console.warn(`⚠️ Error syncing book ${book.name}:`, error);
+          }
+        }
+      }
+
+      // Convert and sync pages (bookmarks)
+      if (localData.bookmarks && localData.bookmarks.length > 0) {
+        console.log('📄 Syncing pages to CouchDB...');
+
+        // First, get all existing pages from CouchDB to check for duplicates
+        let existingPages: any[] = [];
+        try {
+          const allPagesResponse = await fetch('http://localhost:4000/pages');
+          if (allPagesResponse.ok) {
+            const allPagesData = await allPagesResponse.json();
+            existingPages = allPagesData.pages || [];
+            console.log(`📋 Found ${existingPages.length} existing pages in CouchDB`);
+          }
+        } catch (error) {
+          console.warn('⚠️ Could not fetch existing pages:', error);
+        }
+
+        for (const bookmark of localData.bookmarks) {
+          try {
+            // Check if page already exists by title AND URL (since IDs differ)
+            const existingPage = existingPages.find(p =>
+              p.title === bookmark.title && p.url === bookmark.url
+            );
+
+            if (!existingPage) {
+              // Page doesn't exist, create it
+              const createResponse = await fetch('http://localhost:4000/pages', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  title: bookmark.title,
+                  url: bookmark.url,
+                  bookId: bookmark.bookId || null,
+                  content: bookmark.extractedText || bookmark.description || null,
+                  tags: bookmark.tags?.map(t => t.label) || []
+                })
+              });
+
+              if (createResponse.ok) {
+                console.log(`✅ Synced page: ${bookmark.title}`);
+              } else {
+                const errorText = await createResponse.text();
+                console.warn(`⚠️ Failed to sync page: ${bookmark.title} - ${createResponse.status}: ${errorText}`);
+              }
+            } else {
+              console.log(`ℹ️ Page already exists: ${bookmark.title}`);
+            }
+          } catch (error) {
+            console.warn(`⚠️ Error syncing page ${bookmark.title}:`, error);
+          }
+        }
+      }
+
+      set({
+        isSyncing: false,
+        lastSyncAt: new Date().toISOString(),
+        syncError: null
+      });
+
+      console.log('✅ [SYNC] LocalStorage sync to CouchDB completed');
+
+    } catch (error: any) {
+      console.error('❌ [SYNC] Failed to sync localStorage to CouchDB:', error);
+      set({
+        isSyncing: false,
+        syncError: error.message || 'Sync failed'
+      });
+      throw error;
+    }
   },
 }));

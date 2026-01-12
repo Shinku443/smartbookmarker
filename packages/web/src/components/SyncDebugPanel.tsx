@@ -91,6 +91,20 @@ const scenarios: Scenario[] = [
       { id: '8', actor: 'A', action: 'sync', label: 'A syncs reorder' },
       { id: '9', actor: 'B', action: 'sync', label: 'B syncs reorder' }
     ]
+  },
+  {
+    id: 'offline-create',
+    name: 'Offline Create & Sync',
+    description: 'Test that items created offline are pushed to server when online. Local unsynced data ALWAYS wins over backend absence.',
+    steps: [
+      { id: '1', actor: 'A', action: 'offline', label: 'A goes offline' },
+      { id: '2', actor: 'A', entity: 'book', action: 'create', label: 'A creates book while offline' },
+      { id: '3', actor: 'A', entity: 'page', action: 'create', label: 'A creates page 1 while offline' },
+      { id: '4', actor: 'A', entity: 'page', action: 'create', label: 'A creates page 2 while offline' },
+      { id: '5', actor: 'A', action: 'online', label: 'A comes back online' },
+      { id: '6', actor: 'A', action: 'sync', label: 'A syncs - should push local items to server' },
+      { id: '7', actor: 'B', action: 'sync', label: 'B syncs - should receive all items from A' }
+    ]
   }
 ];
 
@@ -147,21 +161,94 @@ type Props = {
 };
 
 export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCreatePage }: Props) {
-  // Get real data from the CouchDB store
-  const { books: realBooks, pages: realPages } = useBookmarksStore();
-  const books = realBooks; // Use real books from store
-  const pages = realPages; // Use real pages from store
+  // Use the same data as the main app (from props) instead of CouchDB store
+  const books = propBooks; // Use books from main app
+  const pages = bookmarks; // Use bookmarks from main app (pages are bookmarks)
 
   // Use the CouchDB store for sync functionality
   const { syncWithRemote } = useBookmarksStore();
+
+  // Drag and resize functionality
+  const [position, setPosition] = useState({ x: 20, y: 20 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [size, setSize] = useState({ width: 320, height: 600 });
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, width: 320, height: 600 });
+
+  // Drag handlers
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('drag-handle')) {
+      setIsDragging(true);
+      setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
+      e.preventDefault();
+    }
+  };
+
+  const handleMouseMove = (e: React.MouseEvent) => {
+    if (isDragging) {
+      const newX = e.clientX - dragStart.x;
+      const newY = e.clientY - dragStart.y;
+
+      // Keep panel within viewport bounds
+      const maxX = window.innerWidth - size.width;
+      const maxY = window.innerHeight - size.height;
+
+      setPosition({
+        x: Math.max(0, Math.min(newX, maxX)),
+        y: Math.max(0, Math.min(newY, maxY))
+      });
+    }
+
+    if (isResizing) {
+      const newWidth = Math.max(280, resizeStart.width + (e.clientX - resizeStart.x));
+      const newHeight = Math.max(400, resizeStart.height + (e.clientY - resizeStart.y));
+
+      setSize({ width: newWidth, height: newHeight });
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+    setIsResizing(false);
+  };
+
+  const handleResizeMouseDown = (e: React.MouseEvent) => {
+    setIsResizing(true);
+    setResizeStart({
+      x: e.clientX,
+      y: e.clientY,
+      width: size.width,
+      height: size.height
+    });
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  // Add global mouse event listeners
+  React.useEffect(() => {
+    if (isDragging || isResizing) {
+      document.addEventListener('mousemove', handleMouseMove as any);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = isDragging ? 'grabbing' : 'nw-resize';
+
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove as any);
+        document.removeEventListener('mouseup', handleMouseUp);
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+      };
+    }
+  }, [isDragging, isResizing]);
 
   // Function to trigger sync after API operations
   const triggerSync = async () => {
     try {
       await syncWithRemote();
-      console.log('✅ Sync triggered successfully after API operation');
+      showToast('✅ Sync triggered successfully after API operation');
     } catch (error) {
-      console.error('❌ Sync failed after API operation:', error);
+      showToast('❌ Sync failed after API operation');
     }
   };
 
@@ -265,13 +352,23 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
   // Delete functions
   const deleteLocalData = async () => {
     try {
-      console.log('🗑️ Deleting all local CouchDB store data...');
+      console.log('🗑️ Deleting all local data (localStorage + CouchDB store)...');
 
-      // Clear the entire CouchDB store
+      // Clear main app's localStorage data
+      console.log('🗑️ Clearing localStorage...');
+      localStorage.clear();
+      console.log('✅ localStorage cleared');
+
+      // Clear the entire CouchDB store (if available)
+      console.log('🗑️ Clearing CouchDB store...');
       await deleteAllLocalData();
+      console.log('✅ CouchDB store cleared');
 
-      console.log('🗑️ All local CouchDB store data cleared');
-      showToast('🗑️ All local store data deleted');
+      // Trigger page reload to refresh the main app
+      console.log('🔄 Reloading page to refresh UI...');
+      window.location.reload();
+
+      showToast('🗑️ All local data deleted - page will reload');
     } catch (error: unknown) {
       console.error('❌ Failed to delete local data:', error);
       showToast(`❌ Delete local failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -301,13 +398,20 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
           }
 
           const data = await response.json();
-          const items = data[endpoint] || [];
+          const items = data[endpoint] || data.books || data.pages || [];
           console.log(`📋 Found ${items.length} ${itemType} to delete`);
 
           // Delete each item
           for (const item of items) {
             try {
-              const deleteResponse = await fetch(`http://localhost:4000/${endpoint}/${item.id}`, {
+              // Debug: Log the item details
+              console.log(`🔍 Deleting ${itemType} item:`, {
+                id: item._id || item.id,
+                title: item.title || item.name,
+                fullItem: item
+              });
+
+              const deleteResponse = await fetch(`http://localhost:4000/${endpoint}/${item._id || item.id}`, {
                 method: 'DELETE'
               });
 
@@ -318,7 +422,8 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
                 console.log(`ℹ️ ${itemType} already deleted: ${item.id}`);
                 totalDeleted++; // Count as deleted even if already gone
               } else {
-                console.warn(`⚠️ Failed to delete ${itemType} ${item.id}:`, deleteResponse.status);
+                const errorText = await deleteResponse.text();
+                console.warn(`⚠️ Failed to delete ${itemType} ${item.id}: ${deleteResponse.status} - ${errorText}`);
                 totalErrors++;
               }
             } catch (error) {
@@ -550,444 +655,474 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
   };
 
   return (
-    <div className="fixed bottom-3 right-3 max-w-xs rounded-md bg-neutral-900/95 text-neutral-100 text-xs shadow-lg border border-neutral-700 p-3 space-y-2 z-50">
-      <div className="flex items-center justify-between">
-        <span className="font-semibold tracking-wide">CouchDB</span>
-        <div className="flex gap-1">
-          {!isInitialized && (
+    <div
+      className="fixed rounded-md bg-neutral-900/95 text-neutral-100 text-xs shadow-lg border border-neutral-700 z-50 overflow-hidden"
+      style={{
+        left: position.x,
+        top: position.y,
+        width: size.width,
+        height: size.height,
+        minWidth: 280,
+        minHeight: 400
+      }}
+    >
+      {/* Drag Handle */}
+      <div
+        className="drag-handle cursor-grab active:cursor-grabbing p-3 border-b border-neutral-700"
+        onMouseDown={handleMouseDown}
+      >
+        <div className="flex items-center justify-between">
+          <span className="font-semibold tracking-wide">CouchDB</span>
+          <div className="flex gap-1">
+            {!isInitialized && (
+              <button
+                onClick={initializeCouchDB}
+                className="px-2 py-0.5 rounded border border-green-500 hover:bg-green-800 text-green-400"
+              >
+                Init
+              </button>
+            )}
             <button
-              onClick={initializeCouchDB}
-              className="px-2 py-0.5 rounded border border-green-500 hover:bg-green-800 text-green-400"
+              onClick={syncWithRemote}
+              disabled={isSyncing || !isInitialized}
+              className="px-2 py-0.5 rounded border border-neutral-500 hover:bg-neutral-800 disabled:opacity-50"
             >
-              Init
+              {isSyncing ? "Syncing…" : "Sync"}
             </button>
-          )}
-          <button
-            onClick={syncWithRemote}
-            disabled={isSyncing || !isInitialized}
-            className="px-2 py-0.5 rounded border border-neutral-500 hover:bg-neutral-800 disabled:opacity-50"
-          >
-            {isSyncing ? "Syncing…" : "Sync"}
-          </button>
-        </div>
-      </div>
-
-      <div className="space-y-1">
-        <div>
-          <span className="text-neutral-400">Status:</span>{" "}
-          <span
-            className={
-              !isInitialized
-                ? "text-yellow-400"
-                : syncError
-                ? "text-red-400"
-                : isSyncing
-                ? "text-amber-300"
-                : "text-emerald-300"
-            }
-          >
-            {!isInitialized ? "Not initialized" : syncError ? "Error" : isSyncing ? "Syncing" : "Ready"}
-          </span>
-        </div>
-
-        <div>
-          <span className="text-neutral-400">Books:</span>{" "}
-          <span>{books.length}</span>
-        </div>
-
-        <div>
-          <span className="text-neutral-400">Pages:</span>{" "}
-          <span>{pages.length}</span>
-        </div>
-
-        {syncError && (
-          <div className="text-red-400">
-            Error: <span>{syncError}</span>
           </div>
-        )}
+        </div>
       </div>
 
-      {/* Details */}
-      <div className="border-t border-neutral-700 pt-2">
-        <button
-          onClick={() => setShowDetails(!showDetails)}
-          className="text-neutral-400 hover:text-neutral-200 text-xs flex items-center gap-1"
-        >
-          <span>{showDetails ? "▼" : "▶"}</span>
-          <span>Details</span>
-        </button>
-
-        {showDetails && (
-          <div className="mt-2 space-y-2">
-            {/* Local Creation (In-Memory) */}
-            <div className="space-y-1">
-              <div className="text-neutral-500 text-xs">Local (In-Memory):</div>
-              <div className="flex gap-1 flex-wrap">
-                <button
-                  onClick={addRandomBook}
-                  className="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 rounded"
-                  title="Add random book locally (in-memory)"
-                >
-                  + Book
-                </button>
-                <button
-                  onClick={addRandomPage}
-                  className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 rounded"
-                  title="Add random page locally (in-memory)"
-                >
-                  + Page
-                </button>
-              </div>
+      {/* Scrollable Content */}
+      <div className="overflow-y-auto" style={{ height: size.height - 60 }}>
+        <div className="p-3 space-y-2">
+          <div className="space-y-1">
+            <div>
+              <span className="text-neutral-400">Status:</span>{" "}
+              <span
+                className={
+                  !isInitialized
+                    ? "text-yellow-400"
+                    : syncError
+                    ? "text-red-400"
+                    : isSyncing
+                    ? "text-amber-300"
+                    : "text-emerald-300"
+                }
+              >
+                {!isInitialized ? "Not initialized" : syncError ? "Error" : isSyncing ? "Syncing" : "Ready"}
+              </span>
             </div>
 
-            {/* Backend Creation (CouchDB API) */}
-            <div className="space-y-1">
-              <div className="text-neutral-500 text-xs">Backend (CouchDB API):</div>
-              <div className="flex gap-1 flex-wrap">
-                <button
-                  onClick={createBookViaAPI}
-                  className="px-2 py-1 text-xs bg-purple-600 hover:bg-purple-700 rounded"
-                  title="Create book directly in CouchDB via API"
-                >
-                  + Book
-                </button>
-                <button
-                  onClick={createPageViaAPI}
-                  className="px-2 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 rounded"
-                  title="Create page directly in CouchDB via API"
-                >
-                  + Page
-                </button>
-              </div>
-              <div className="text-neutral-400 text-xs">
-                Status: 🟢 API endpoints ready
-              </div>
+            <div>
+              <span className="text-neutral-400">Books:</span>{" "}
+              <span>{books.length}</span>
             </div>
 
-            {/* Delete Operations */}
-            <div className="space-y-1">
-              <div className="text-neutral-500 text-xs">Delete Operations:</div>
-              <div className="grid grid-cols-3 gap-1">
-                <button
-                  onClick={deleteLocalData}
-                  className="px-2 py-1 text-xs bg-red-600 hover:bg-red-700 rounded"
-                  title="Delete all local (in-memory) data"
-                >
-                  Del Local
-                </button>
-                <button
-                  onClick={deleteBackendData}
-                  className="px-2 py-1 text-xs bg-red-600 hover:bg-red-700 rounded"
-                  title="Delete all backend (CouchDB) data"
-                >
-                  Del Backend
-                </button>
-                <button
-                  onClick={deleteAllData}
-                  className="px-2 py-1 text-xs bg-red-800 hover:bg-red-900 rounded"
-                  title="Delete ALL data (local + backend)"
-                >
-                  Del All
-                </button>
-              </div>
+            <div>
+              <span className="text-neutral-400">Pages:</span>{" "}
+              <span>{pages.length}</span>
             </div>
 
-            {/* Recently Created Items (Expandable) */}
-            {(books.length > 0 || pages.length > 0) && (
-              <div className="space-y-1">
-                <button
-                  onClick={() => setShowRecent(!showRecent)}
-                  className="text-neutral-500 hover:text-neutral-300 text-xs flex items-center gap-1"
-                >
-                  <span>{showRecent ? "▼" : "▶"}</span>
-                  <span>Recently Created ({Math.min(10, books.length + pages.length)})</span>
-                </button>
+            {syncError && (
+              <div className="text-red-400">
+                Error: <span>{syncError}</span>
+              </div>
+            )}
+          </div>
 
-                {showRecent && (
-                  <div className="space-y-2">
-                    {/* Combined recent items sorted by creation time */}
-                    {(() => {
-                      const allItems = [
-                        ...books.map(book => ({
-                          ...book,
-                          type: 'book' as const,
-                          displayName: book.title,
-                          icon: book.emoji || '📖',
-                          source: 'local' as 'local' | 'backend' // Can be local or backend
-                        })),
-                        ...pages.map(page => ({
-                          ...page,
-                          type: 'page' as const,
-                          displayName: page.title,
-                          icon: '📄',
-                          source: 'local' as 'local' | 'backend' // Can be local or backend
-                        }))
-                      ].sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+          {/* Details */}
+          <div className="border-t border-neutral-700 pt-2">
+            <button
+              onClick={() => setShowDetails(!showDetails)}
+              className="text-neutral-400 hover:text-neutral-200 text-xs flex items-center gap-1"
+            >
+              <span>{showDetails ? "▼" : "▶"}</span>
+              <span>Details</span>
+            </button>
 
-                      const recentItems = allItems.slice(0, 10);
+            {showDetails && (
+              <div className="mt-2 space-y-2">
+                {/* Local Creation (In-Memory) */}
+                <div className="space-y-1">
+                  <div className="text-neutral-500 text-xs">Local (In-Memory):</div>
+                  <div className="flex gap-1 flex-wrap">
+                    <button
+                      onClick={addRandomBook}
+                      className="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 rounded"
+                      title="Add random book locally (in-memory)"
+                    >
+                      + Book
+                    </button>
+                    <button
+                      onClick={addRandomPage}
+                      className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 rounded"
+                      title="Add random page locally (in-memory)"
+                    >
+                      + Page
+                    </button>
+                  </div>
+                </div>
 
-                      return recentItems.length > 0 ? (
-                        <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded max-h-32 overflow-y-auto">
-                          <div className="font-semibold mb-2">🕐 Recently Created Items:</div>
-                          {recentItems.map((item, index) => (
-                            <div key={`${item.type}-${item.id}`} className="text-xs mb-1 flex items-center gap-1">
-                              <span>{item.icon}</span>
-                              <span className="truncate flex-1">{item.displayName}</span>
-                              <span className={`text-xs px-1 rounded ${
-                                item.source === 'backend' ? 'bg-purple-600' :
-                                item.source === 'local' ? 'bg-green-600' : 'bg-neutral-600'
-                              }`}>
-                                {item.source === 'backend' ? 'API' : item.source === 'local' ? 'Local' : item.source}
-                              </span>
-                              <span className="text-neutral-500 text-xs">
-                                {item.createdAt ? new Date(item.createdAt).toLocaleTimeString() : ''}
-                              </span>
+                {/* Backend Creation (CouchDB API) */}
+                <div className="space-y-1">
+                  <div className="text-neutral-500 text-xs">Backend (CouchDB API):</div>
+                  <div className="flex gap-1 flex-wrap">
+                    <button
+                      onClick={createBookViaAPI}
+                      className="px-2 py-1 text-xs bg-purple-600 hover:bg-purple-700 rounded"
+                      title="Create book directly in CouchDB via API"
+                    >
+                      + Book
+                    </button>
+                    <button
+                      onClick={createPageViaAPI}
+                      className="px-2 py-1 text-xs bg-indigo-600 hover:bg-indigo-700 rounded"
+                      title="Create page directly in CouchDB via API"
+                    >
+                      + Page
+                    </button>
+                  </div>
+                  <div className="text-neutral-400 text-xs">
+                    Status: 🟢 API endpoints ready
+                  </div>
+                </div>
+
+                {/* Delete Operations */}
+                <div className="space-y-1">
+                  <div className="text-neutral-500 text-xs">Delete Operations:</div>
+                  <div className="grid grid-cols-3 gap-1">
+                    <button
+                      onClick={deleteLocalData}
+                      className="px-2 py-1 text-xs bg-red-600 hover:bg-red-700 rounded"
+                      title="Delete all local (in-memory) data"
+                    >
+                      Del Local
+                    </button>
+                    <button
+                      onClick={deleteBackendData}
+                      className="px-2 py-1 text-xs bg-red-600 hover:bg-red-700 rounded"
+                      title="Delete all backend (CouchDB) data"
+                    >
+                      Del Backend
+                    </button>
+                    <button
+                      onClick={deleteAllData}
+                      className="px-2 py-1 text-xs bg-red-800 hover:bg-red-900 rounded"
+                      title="Delete ALL data (local + backend)"
+                    >
+                      Del All
+                    </button>
+                  </div>
+                </div>
+
+                {/* Recently Created Items (Expandable) */}
+                {(books.length > 0 || pages.length > 0) && (
+                  <div className="space-y-1">
+                    <button
+                      onClick={() => setShowRecent(!showRecent)}
+                      className="text-neutral-500 hover:text-neutral-300 text-xs flex items-center gap-1"
+                    >
+                      <span>{showRecent ? "▼" : "▶"}</span>
+                      <span>Recently Created ({Math.min(10, books.length + pages.length)})</span>
+                    </button>
+
+                    {showRecent && (
+                      <div className="space-y-2">
+                        {/* Combined recent items sorted by creation time */}
+                        {(() => {
+                          const allItems = [
+                            ...books.map(book => ({
+                              ...book,
+                              type: 'book' as const,
+                              displayName: book.title,
+                              icon: book.emoji || '📖',
+                              source: 'local' as 'local' | 'backend' // Can be local or backend
+                            })),
+                            ...pages.map(page => ({
+                              ...page,
+                              type: 'page' as const,
+                              displayName: page.title,
+                              icon: '📄',
+                              source: 'local' as 'local' | 'backend' // Can be local or backend
+                            }))
+                          ].sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+
+                          const recentItems = allItems.slice(0, 10);
+
+                          return recentItems.length > 0 ? (
+                            <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded max-h-32 overflow-y-auto">
+                              <div className="font-semibold mb-2">🕐 Recently Created Items:</div>
+                              {recentItems.map((item, index) => (
+                                <div key={`${item.type}-${item.id}`} className="text-xs mb-1 flex items-center gap-1">
+                                  <span>{item.icon}</span>
+                                  <span className="truncate flex-1">{item.displayName}</span>
+                                  <span className={`text-xs px-1 rounded ${
+                                    item.source === 'backend' ? 'bg-purple-600' :
+                                    item.source === 'local' ? 'bg-green-600' : 'bg-neutral-600'
+                                  }`}>
+                                    {item.source === 'backend' ? 'API' : item.source === 'local' ? 'Local' : item.source}
+                                  </span>
+                                  <span className="text-neutral-500 text-xs">
+                                    {item.createdAt ? new Date(item.createdAt).toLocaleTimeString() : ''}
+                                  </span>
+                                </div>
+                              ))}
                             </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-neutral-500 text-xs bg-neutral-800 p-2 rounded">
-                          No items created yet
-                        </div>
-                      );
-                    })()}
-
-                    {/* Separate sections for books and pages */}
-                    <div className="grid grid-cols-2 gap-2">
-                      {books.length > 0 && (
-                        <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded max-h-20 overflow-y-auto">
-                          <div className="font-semibold mb-1">📚 Books ({books.length}):</div>
-                          {books.slice(-3).map((book) => (
-                            <div key={book.id} className="text-xs truncate">
-                              {book.emoji || '📖'} {book.title}
+                          ) : (
+                            <div className="text-neutral-500 text-xs bg-neutral-800 p-2 rounded">
+                              No items created yet
                             </div>
-                          ))}
-                        </div>
-                      )}
+                          );
+                        })()}
 
-                      {pages.length > 0 && (
-                        <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded max-h-20 overflow-y-auto">
-                          <div className="font-semibold mb-1">📄 Pages ({pages.length}):</div>
-                          {pages.slice(-3).map((page) => (
-                            <div key={page.id} className="text-xs truncate">
-                              {page.title}
+                        {/* Separate sections for books and pages */}
+                        <div className="grid grid-cols-2 gap-2">
+                          {books.length > 0 && (
+                            <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded max-h-20 overflow-y-auto">
+                              <div className="font-semibold mb-1">📚 Books ({books.length}):</div>
+                              {books.slice(-3).map((book) => (
+                                <div key={book.id} className="text-xs truncate">
+                                  {book.emoji || '📖'} {book.title}
+                                </div>
+                              ))}
                             </div>
-                          ))}
+                          )}
+
+                          {pages.length > 0 && (
+                            <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded max-h-20 overflow-y-auto">
+                              <div className="font-semibold mb-1">📄 Pages ({pages.length}):</div>
+                              {pages.slice(-3).map((page) => (
+                                <div key={page.id} className="text-xs truncate">
+                                  {page.title}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             )}
           </div>
-        )}
-      </div>
 
-      {/* Mutation Queue Inspector */}
-      <div className="border-t border-neutral-700 pt-2">
-        <button
-          onClick={() => setShowMutations(!showMutations)}
-          className="text-neutral-400 hover:text-neutral-200 text-xs flex items-center gap-1"
-        >
-          <span>{showMutations ? "▼" : "▶"}</span>
-          <span>Mutation Queue ({pendingMutations.length})</span>
-        </button>
+          {/* Mutation Queue Inspector */}
+          <div className="border-t border-neutral-700 pt-2">
+            <button
+              onClick={() => setShowMutations(!showMutations)}
+              className="text-neutral-400 hover:text-neutral-200 text-xs flex items-center gap-1"
+            >
+              <span>{showMutations ? "▼" : "▶"}</span>
+              <span>Mutation Queue ({pendingMutations.length})</span>
+            </button>
 
-        {showMutations && (
-          <div className="mt-2 space-y-2">
-            <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded max-h-40 overflow-y-auto">
-              <div className="font-semibold mb-2">🔄 Pending Mutations:</div>
-              {pendingMutations.length === 0 ? (
-                <div className="text-neutral-500">No pending mutations</div>
-              ) : (
-                pendingMutations.map((mutation) => (
-                  <div key={mutation.id} className="text-xs mb-2 p-2 bg-neutral-700 rounded">
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="font-medium">{mutation.type.toUpperCase()} {mutation.entity}</span>
-                      <span className={`px-1 rounded text-xs ${
-                        mutation.synced ? 'bg-green-600' : 'bg-yellow-600'
-                      }`}>
-                        {mutation.synced ? 'synced' : 'pending'}
-                      </span>
-                    </div>
-                    <div className="text-neutral-400">ID: {mutation.id}</div>
-                    <div className="text-neutral-400">Time: {new Date(mutation.timestamp).toLocaleTimeString()}</div>
-                    {mutation.data && Object.keys(mutation.data).length > 0 && (
-                      <div className="text-neutral-400 mt-1">
-                        Data: {JSON.stringify(mutation.data).slice(0, 50)}...
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Tombstone Inspector */}
-      <div className="border-t border-neutral-700 pt-2">
-        <button
-          onClick={() => setShowTombstones(!showTombstones)}
-          className="text-neutral-400 hover:text-neutral-200 text-xs flex items-center gap-1"
-        >
-          <span>{showTombstones ? "▼" : "▶"}</span>
-          <span>Tombstones</span>
-        </button>
-
-        {showTombstones && (
-          <div className="mt-2 space-y-2">
-            <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded">
-              <div className="font-semibold mb-2">🪦 Tombstone Inspector:</div>
-              <div className="text-neutral-500 mb-2">
-                Tombstones are deleted items that persist for sync purposes.
-                They contain metadata about when and why items were deleted.
-              </div>
-
-              {/* Local Tombstones (from store) */}
-              <div className="mb-3">
-                <div className="font-medium mb-1">Local Tombstones:</div>
-                <div className="text-neutral-500 text-xs">
-                  No local tombstone tracking implemented yet.
-                  Items are marked deleted: true in the store.
-                </div>
-              </div>
-
-              {/* Backend Tombstones */}
-              <div>
-                <div className="font-medium mb-1">Backend Tombstones (CouchDB):</div>
-                <div className="text-neutral-500 text-xs">
-                  Deleted documents in CouchDB with _deleted: true.
-                  View in CouchDB admin: http://localhost:5984/_utils/
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Sync Scenario Simulator */}
-      <div className="border-t border-neutral-700 pt-2">
-        <button
-          onClick={() => setShowSimulator(!showSimulator)}
-          className="text-neutral-400 hover:text-neutral-200 text-xs flex items-center gap-1"
-        >
-          <span>{showSimulator ? "▼" : "▶"}</span>
-          <span>Scenario Simulator</span>
-        </button>
-
-        {showSimulator && (
-          <div className="mt-2 space-y-2">
-            <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded">
-              <div className="font-semibold mb-2">🎭 Sync Scenario Simulator:</div>
-              <div className="text-neutral-500 mb-3 text-xs">
-                Test complex sync scenarios with multiple actors and steps.
-                See state changes at each step for debugging conflicts.
-              </div>
-
-              {/* Preset Scenarios */}
-              <div className="mb-3">
-                <div className="font-medium mb-2">📋 Preset Scenarios:</div>
-                <div className="space-y-1">
-                  <button
-                    onClick={() => setCurrentScenario(scenarios.find(s => s.id === 'edit-vs-delete') || null)}
-                    className="block w-full text-left px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 rounded"
-                  >
-                    Edit vs Delete Conflict
-                  </button>
-                  <button
-                    onClick={() => setCurrentScenario(scenarios.find(s => s.id === 'offline-deletes') || null)}
-                    className="block w-full text-left px-2 py-1 text-xs bg-green-600 hover:bg-green-700 rounded"
-                  >
-                    Offline Deletes
-                  </button>
-                  <button
-                    onClick={() => setCurrentScenario(scenarios.find(s => s.id === 'reorder-conflict') || null)}
-                    className="block w-full text-left px-2 py-1 text-xs bg-purple-600 hover:bg-purple-700 rounded"
-                  >
-                    Reorder Conflict
-                  </button>
-                </div>
-              </div>
-
-              {/* Current Scenario */}
-              {currentScenario && (
-                <div className="mb-3">
-                  <div className="font-medium mb-2">🎯 Current Scenario: {currentScenario.name}</div>
-                  {currentScenario.description && (
-                    <div className="text-neutral-400 text-xs mb-2">{currentScenario.description}</div>
-                  )}
-
-                  {/* Timeline View */}
-                  <div className="mb-3">
-                    <div className="font-medium mb-2">⏱️ Timeline:</div>
-                    <div className="space-y-1 max-h-32 overflow-y-auto">
-                      {currentScenario.steps.map((step, index) => {
-                        const executedStep = executedSteps.find(es => es.step.id === step.id);
-                        return (
-                          <div key={step.id} className="flex items-center gap-2 text-xs">
-                            <span className="font-mono">{index + 1}.</span>
-                            <span className={`px-1 rounded text-xs ${
-                              executedStep?.status === 'executed' ? 'bg-green-600' :
-                              executedStep?.status === 'error' ? 'bg-red-600' : 'bg-neutral-600'
-                            }`}>
-                              {executedStep?.status || 'pending'}
-                            </span>
-                            <span>{step.label || `${step.actor} ${step.action}`}</span>
+            {showMutations && (
+              <div className="mt-2 space-y-2">
+                <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded max-h-40 overflow-y-auto">
+                  <div className="font-semibold mb-2">🔄 Pending Mutations:</div>
+                  {pendingMutations.length === 0 ? (
+                    <div className="text-neutral-500">No pending mutations</div>
+                  ) : (
+                    pendingMutations.map((mutation) => (
+                      <div key={mutation.id} className="text-xs mb-2 p-2 bg-neutral-700 rounded">
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="font-medium">{mutation.type.toUpperCase()} {mutation.entity}</span>
+                          <span className={`px-1 rounded text-xs ${
+                            mutation.synced ? 'bg-green-600' : 'bg-yellow-600'
+                          }`}>
+                            {mutation.synced ? 'synced' : 'pending'}
+                          </span>
+                        </div>
+                        <div className="text-neutral-400">ID: {mutation.id}</div>
+                        <div className="text-neutral-400">Time: {new Date(mutation.timestamp).toLocaleTimeString()}</div>
+                        {mutation.data && Object.keys(mutation.data).length > 0 && (
+                          <div className="text-neutral-400 mt-1">
+                            Data: {JSON.stringify(mutation.data).slice(0, 50)}...
                           </div>
-                        );
-                      })}
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Tombstone Inspector */}
+          <div className="border-t border-neutral-700 pt-2">
+            <button
+              onClick={() => setShowTombstones(!showTombstones)}
+              className="text-neutral-400 hover:text-neutral-200 text-xs flex items-center gap-1"
+            >
+              <span>{showTombstones ? "▼" : "▶"}</span>
+              <span>Tombstones</span>
+            </button>
+
+            {showTombstones && (
+              <div className="mt-2 space-y-2">
+                <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded">
+                  <div className="font-semibold mb-2">🪦 Tombstone Inspector:</div>
+                  <div className="text-neutral-500 mb-2">
+                    Tombstones are deleted items that persist for sync purposes.
+                    They contain metadata about when and why items were deleted.
+                  </div>
+
+                  {/* Local Tombstones (from store) */}
+                  <div className="mb-3">
+                    <div className="font-medium mb-1">Local Tombstones:</div>
+                    <div className="text-neutral-500 text-xs">
+                      No local tombstone tracking implemented yet.
+                      Items are marked deleted: true in the store.
                     </div>
                   </div>
 
-                  {/* Controls */}
-                  <div className="flex gap-1 mb-3">
-                    <button
-                      onClick={() => runNextStep()}
-                      disabled={isRunningScenario || currentStepIndex >= currentScenario.steps.length}
-                      className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded"
-                    >
-                      {isRunningScenario ? 'Running...' : 'Run Next'}
-                    </button>
-                    <button
-                      onClick={() => runAllSteps()}
-                      disabled={isRunningScenario || currentScenario.steps.length === 0}
-                      className="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded"
-                    >
-                      Run All
-                    </button>
-                    <button
-                      onClick={() => resetScenario()}
-                      className="px-2 py-1 text-xs bg-neutral-600 hover:bg-neutral-700 rounded"
-                    >
-                      Reset
-                    </button>
+                  {/* Backend Tombstones */}
+                  <div>
+                    <div className="font-medium mb-1">Backend Tombstones (CouchDB):</div>
+                    <div className="text-neutral-500 text-xs">
+                      Deleted documents in CouchDB with _deleted: true.
+                      View in CouchDB admin: http://localhost:5984/_utils/
+                    </div>
                   </div>
                 </div>
-              )}
+              </div>
+            )}
+          </div>
 
-              {/* Snapshot Viewer */}
-              {snapshots.length > 0 && (
-                <div>
-                  <div className="font-medium mb-2">📸 State Snapshots:</div>
-                  <div className="space-y-1">
-                    {snapshots.map((snapshot, index) => (
-                      <div key={snapshot.stepId} className="text-xs">
-                        <div className="font-medium">Step {index + 1}: {snapshot.label}</div>
-                        <div className="text-neutral-400 pl-2">
-                          Books A: {(snapshot.localA as any)?.books?.length || 0} |
-                          Books B: {(snapshot.localB as any)?.books?.length || 0}
+          {/* Sync Scenario Simulator */}
+          <div className="border-t border-neutral-700 pt-2">
+            <button
+              onClick={() => setShowSimulator(!showSimulator)}
+              className="text-neutral-400 hover:text-neutral-200 text-xs flex items-center gap-1"
+            >
+              <span>{showSimulator ? "▼" : "▶"}</span>
+              <span>Scenario Simulator</span>
+            </button>
+
+            {showSimulator && (
+              <div className="mt-2 space-y-2">
+                <div className="text-neutral-300 text-xs bg-neutral-800 p-2 rounded">
+                  <div className="font-semibold mb-2">🎭 Sync Scenario Simulator:</div>
+                  <div className="text-neutral-500 mb-3 text-xs">
+                    Test complex sync scenarios with multiple actors and steps.
+                    See state changes at each step for debugging conflicts.
+                  </div>
+
+                  {/* Preset Scenarios */}
+                  <div className="mb-3">
+                    <div className="font-medium mb-2">📋 Preset Scenarios:</div>
+                    <div className="space-y-1">
+                      <button
+                        onClick={() => setCurrentScenario(scenarios.find(s => s.id === 'edit-vs-delete') || null)}
+                        className="block w-full text-left px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 rounded"
+                      >
+                        Edit vs Delete Conflict
+                      </button>
+                      <button
+                        onClick={() => setCurrentScenario(scenarios.find(s => s.id === 'offline-deletes') || null)}
+                        className="block w-full text-left px-2 py-1 text-xs bg-green-600 hover:bg-green-700 rounded"
+                      >
+                        Offline Deletes
+                      </button>
+                      <button
+                        onClick={() => setCurrentScenario(scenarios.find(s => s.id === 'reorder-conflict') || null)}
+                        className="block w-full text-left px-2 py-1 text-xs bg-purple-600 hover:bg-purple-700 rounded"
+                      >
+                        Reorder Conflict
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Current Scenario */}
+                  {currentScenario && (
+                    <div className="mb-3">
+                      <div className="font-medium mb-2">🎯 Current Scenario: {currentScenario.name}</div>
+                      {currentScenario.description && (
+                        <div className="text-neutral-400 text-xs mb-2">{currentScenario.description}</div>
+                      )}
+
+                      {/* Timeline View */}
+                      <div className="mb-3">
+                        <div className="font-medium mb-2">⏱️ Timeline:</div>
+                        <div className="space-y-1 max-h-32 overflow-y-auto">
+                          {currentScenario.steps.map((step, index) => {
+                            const executedStep = executedSteps.find(es => es.step.id === step.id);
+                            return (
+                              <div key={step.id} className="flex items-center gap-2 text-xs">
+                                <span className="font-mono">{index + 1}.</span>
+                                <span className={`px-1 rounded text-xs ${
+                                  executedStep?.status === 'executed' ? 'bg-green-600' :
+                                  executedStep?.status === 'error' ? 'bg-red-600' : 'bg-neutral-600'
+                                }`}>
+                                  {executedStep?.status || 'pending'}
+                                </span>
+                                <span>{step.label || `${step.actor} ${step.action}`}</span>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
-                    ))}
-                  </div>
+
+                      {/* Controls */}
+                      <div className="flex gap-1 mb-3">
+                        <button
+                          onClick={() => runNextStep()}
+                          disabled={isRunningScenario || currentStepIndex >= currentScenario.steps.length}
+                          className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded"
+                        >
+                          {isRunningScenario ? 'Running...' : 'Run Next'}
+                        </button>
+                        <button
+                          onClick={() => runAllSteps()}
+                          disabled={isRunningScenario || currentScenario.steps.length === 0}
+                          className="px-2 py-1 text-xs bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded"
+                        >
+                          Run All
+                        </button>
+                        <button
+                          onClick={() => resetScenario()}
+                          className="px-2 py-1 text-xs bg-neutral-600 hover:bg-neutral-700 rounded"
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Snapshot Viewer */}
+                  {snapshots.length > 0 && (
+                    <div>
+                      <div className="font-medium mb-2">📸 State Snapshots:</div>
+                      <div className="space-y-1">
+                        {snapshots.map((snapshot, index) => (
+                          <div key={snapshot.stepId} className="text-xs">
+                            <div className="font-medium">Step {index + 1}: {snapshot.label}</div>
+                            <div className="text-neutral-400 pl-2">
+                              Books A: {(snapshot.localA as any)?.books?.length || 0} |
+                              Books B: {(snapshot.localB as any)?.books?.length || 0}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
+
+      {/* Resize Handle */}
+      <div
+        className="absolute bottom-0 right-0 w-4 h-4 cursor-nw-resize opacity-50 hover:opacity-100"
+        onMouseDown={handleResizeMouseDown}
+        style={{
+          background: 'linear-gradient(-45deg, transparent 0%, transparent 30%, rgba(156, 163, 175, 0.5) 30%, rgba(156, 163, 175, 0.5) 35%, transparent 35%, transparent 65%, rgba(156, 163, 175, 0.5) 65%, rgba(156, 163, 175, 0.5) 70%, transparent 70%)'
+        }}
+      />
     </div>
   );
 }

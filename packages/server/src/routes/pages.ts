@@ -119,6 +119,7 @@ export default async function pageRoutes(app: FastifyInstance) {
         notes: data.notes || null,
         source: data.source || 'manual',
         rawMetadata: data.rawMetadata || null,
+        tags: data.tags || [], // Add tags to CouchDB document
         order: Date.now(),
         pinned: data.pinned || false,
         createdAt: new Date().toISOString(),
