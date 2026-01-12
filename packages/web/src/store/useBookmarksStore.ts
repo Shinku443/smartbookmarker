@@ -6,6 +6,51 @@ import { create } from "zustand";
 // Dynamic imports for PouchDB to work in browser
 let PouchDB: any = null;
 
+// Simple toast notification system (copied from SyncDebugPanel)
+let toastTimeouts: NodeJS.Timeout[] = [];
+
+const showToast = (message: string, duration = 3000) => {
+  // Clear existing toasts
+  toastTimeouts.forEach(clearTimeout);
+  toastTimeouts = [];
+
+  // Create toast element
+  const existingToast = document.getElementById('sync-debug-toast');
+  if (existingToast) {
+    existingToast.remove();
+  }
+
+  const toast = document.createElement('div');
+  toast.id = 'sync-debug-toast';
+  toast.textContent = message;
+  toast.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.9);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    z-index: 10000;
+    max-width: 300px;
+    word-wrap: break-word;
+  `;
+
+  document.body.appendChild(toast);
+
+  // Auto remove after duration
+  const timeout = setTimeout(() => {
+    if (toast.parentNode) {
+      toast.parentNode.removeChild(toast);
+    }
+    toastTimeouts = toastTimeouts.filter(t => t !== timeout);
+  }, duration);
+
+  toastTimeouts.push(timeout);
+};
+
 // Core data model with offline-first fields
 export type BaseEntity = {
   id: string;
@@ -94,6 +139,8 @@ type State = {
   deleteBook: (id: string) => Promise<void>;
   deletePage: (id: string) => Promise<void>;
   deleteAllLocalData: () => Promise<void>;
+  deleteLocalDataOnly: () => Promise<void>;
+  resetAccount: () => Promise<void>;
 
   // Offline-first operations
   markLocalDeleted: (entity: 'book' | 'page', id: string) => void;
@@ -587,6 +634,57 @@ export const useBookmarksStore = create<State>((set, get) => ({
     console.log('🗑️ All local data cleared from memory');
   },
 
+  // Delete functions
+  async deleteLocalDataOnly() {
+    try {
+      console.log('🗑️ Deleting only local bookmark data (books/pages), keeping settings...');
+
+      // Clear bookmark data from localStorage only
+      console.log('🗑️ Clearing bookmark data from localStorage...');
+      localStorage.removeItem('emperor_library');
+      console.log('✅ Bookmark data cleared from localStorage');
+
+      // Clear the entire CouchDB store (if available)
+      console.log('🗑️ Clearing CouchDB store...');
+      await get().deleteAllLocalData();
+      console.log('✅ CouchDB store cleared');
+
+      // Trigger page reload to refresh the main app
+      console.log('🔄 Reloading page to refresh UI...');
+      window.location.reload();
+
+      showToast('🗑️ Local bookmark data deleted - page will reload');
+    } catch (error: unknown) {
+      console.error('❌ Failed to delete local bookmark data:', error);
+      showToast(`❌ Delete local failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+
+  async resetAccount() {
+    try {
+      console.log('🔄 Resetting account - deleting all local data AND settings...');
+
+      // Clear ALL localStorage data (including settings)
+      console.log('🗑️ Clearing ALL localStorage data...');
+      localStorage.clear();
+      console.log('✅ All localStorage data cleared');
+
+      // Clear the entire CouchDB store (if available)
+      console.log('🗑️ Clearing CouchDB store...');
+      await get().deleteAllLocalData();
+      console.log('✅ CouchDB store cleared');
+
+      // Trigger page reload to refresh the main app
+      console.log('🔄 Reloading page to refresh UI...');
+      window.location.reload();
+
+      showToast('🔄 Account reset - all data cleared, page will reload');
+    } catch (error: unknown) {
+      console.error('❌ Failed to reset account:', error);
+      showToast(`❌ Reset account failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  },
+
   // Offline-first operations
   markLocalDeleted(entity, id) {
     console.log(`🗑️ Marking ${entity} ${id} as locally deleted`);
@@ -755,10 +853,10 @@ export const useBookmarksStore = create<State>((set, get) => ({
 
   // Sync localStorage data to CouchDB API (when PouchDB is not available)
   async syncLocalStorageToCouchDB() {
-    console.log('🔄 [SYNC] Syncing localStorage data to CouchDB API...');
+    console.log('🔄 [SYNC] Syncing localStorage data to/from CouchDB API...');
 
-    // Import the localStorage loading function
-    const { loadBookmarks } = await import('../storage/webStorage');
+    // Import the localStorage functions
+    const { loadBookmarks, saveBookmarks } = await import('../storage/webStorage');
 
     try {
       // Load data from localStorage
@@ -768,6 +866,7 @@ export const useBookmarksStore = create<State>((set, get) => ({
         bookmarks: localData.bookmarks?.length || 0
       });
 
+      // FIRST: Push local data to CouchDB (if any exists)
       // Convert and sync books
       if (localData.books && localData.books.length > 0) {
         console.log('📖 Syncing books to CouchDB...');
@@ -869,16 +968,105 @@ export const useBookmarksStore = create<State>((set, get) => ({
         }
       }
 
+      // SECOND: Pull data from CouchDB and update localStorage
+      console.log('🔄 [SYNC] Pulling latest data from CouchDB...');
+
+      // Fetch all books from CouchDB
+      let couchdbBooks: any[] = [];
+      try {
+        const booksResponse = await fetch('http://localhost:4000/books');
+        if (booksResponse.ok) {
+          const booksData = await booksResponse.json();
+          couchdbBooks = booksData.books || [];
+          console.log(`📖 Pulled ${couchdbBooks.length} books from CouchDB`);
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not fetch books from CouchDB:', error);
+      }
+
+      // Fetch all pages from CouchDB
+      let couchdbPages: any[] = [];
+      try {
+        const pagesResponse = await fetch('http://localhost:4000/pages');
+        if (pagesResponse.ok) {
+          const pagesData = await pagesResponse.json();
+          couchdbPages = pagesData.pages || [];
+          console.log(`📄 Pulled ${couchdbPages.length} pages from CouchDB`);
+        }
+      } catch (error) {
+        console.warn('⚠️ Could not fetch pages from CouchDB:', error);
+      }
+
+      // Convert CouchDB data to local storage format
+      const syncedData = {
+        bookmarks: couchdbPages.map((page: any) => ({
+          id: page.id,
+          title: page.title,
+          url: page.url,
+          description: page.description || null,
+          faviconUrl: page.faviconUrl || null,
+          thumbnailUrl: page.thumbnailUrl || null,
+          extractedText: page.extractedText || null,
+          screenshotUrl: page.screenshotUrl || null,
+          metaDescription: page.metaDescription || null,
+          status: page.status || null,
+          notes: page.notes || null,
+          source: page.source || 'manual',
+          rawMetadata: page.rawMetadata || null,
+          bookId: page.bookId || null,
+          tags: page.tags || [],
+          order: page.order || Date.now(),
+          pinned: page.pinned || false,
+          createdAt: page.createdAt,
+          updatedAt: page.updatedAt,
+          deleted: page.deleted || false,
+          deletedAt: page.deletedAt || null,
+          pinnedAt: page.pinnedAt || null,
+          content: page.content || null
+        })),
+        books: couchdbBooks.map((book: any) => ({
+          id: book.id,
+          title: book.title,
+          emoji: book.emoji || null,
+          order: book.order || Date.now(),
+          createdAt: book.createdAt,
+          updatedAt: book.updatedAt,
+          deleted: book.deleted || false,
+          deletedAt: book.deletedAt || null,
+          pinned: book.pinned || false,
+          pinnedAt: book.pinnedAt || null,
+          parentBookId: book.parentBookId || null,
+          name: book.title, // Add name for compatibility
+          icon: book.emoji || null // Add icon for compatibility
+        })),
+        rootOrder: couchdbBooks
+          .filter((book: any) => !book.pinned)
+          .sort((a: any, b: any) => (a.order || 0) - (b.order || 0))
+          .map((book: any) => book.id),
+        pinnedOrder: couchdbBooks
+          .filter((book: any) => book.pinned)
+          .sort((a: any, b: any) => (a.order || 0) - (b.order || 0))
+          .map((book: any) => book.id)
+      };
+
+      // Save the synced data to localStorage
+      await saveBookmarks(syncedData);
+      console.log('💾 Updated localStorage with CouchDB data');
+
+      // Update in-memory state
       set({
+        books: syncedData.books,
+        pages: syncedData.bookmarks,
         isSyncing: false,
         lastSyncAt: new Date().toISOString(),
         syncError: null
       });
 
-      console.log('✅ [SYNC] LocalStorage sync to CouchDB completed');
+      console.log('✅ [SYNC] LocalStorage sync to/from CouchDB completed');
+      console.log(`📊 Final state: ${syncedData.books.length} books, ${syncedData.bookmarks.length} pages`);
 
     } catch (error: any) {
-      console.error('❌ [SYNC] Failed to sync localStorage to CouchDB:', error);
+      console.error('❌ [SYNC] Failed to sync localStorage to/from CouchDB:', error);
       set({
         isSyncing: false,
         syncError: error.message || 'Sync failed'

@@ -169,7 +169,12 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
   const { syncWithRemote } = useBookmarksStore();
 
   // Drag and resize functionality
-  const [position, setPosition] = useState({ x: 20, y: 20 });
+  const [position, setPosition] = useState(() => {
+    // Start in bottom right of screen by default
+    const defaultX = window.innerWidth - 340; // 320px width + 20px margin
+    const defaultY = window.innerHeight - 620; // 600px height + 20px margin
+    return { x: Math.max(20, defaultX), y: Math.max(20, defaultY) };
+  });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [size, setSize] = useState({ width: 320, height: 600 });
@@ -178,7 +183,9 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
 
   // Drag handlers
   const handleMouseDown = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('drag-handle')) {
+    // Make the entire header area draggable
+    const target = e.target as HTMLElement;
+    if (target.closest('.drag-header')) {
       setIsDragging(true);
       setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
       e.preventDefault();
@@ -347,33 +354,10 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
   };
 
   // Get store state and functions
-  const { deleteAllLocalData, pendingMutations } = useBookmarksStore();
+  const { deleteLocalDataOnly, resetAccount, pendingMutations } = useBookmarksStore();
 
-  // Delete functions
-  const deleteLocalData = async () => {
-    try {
-      console.log('🗑️ Deleting all local data (localStorage + CouchDB store)...');
-
-      // Clear main app's localStorage data
-      console.log('🗑️ Clearing localStorage...');
-      localStorage.clear();
-      console.log('✅ localStorage cleared');
-
-      // Clear the entire CouchDB store (if available)
-      console.log('🗑️ Clearing CouchDB store...');
-      await deleteAllLocalData();
-      console.log('✅ CouchDB store cleared');
-
-      // Trigger page reload to refresh the main app
-      console.log('🔄 Reloading page to refresh UI...');
-      window.location.reload();
-
-      showToast('🗑️ All local data deleted - page will reload');
-    } catch (error: unknown) {
-      console.error('❌ Failed to delete local data:', error);
-      showToast(`❌ Delete local failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  };
+  // Delete functions - now handled by store functions
+  // deleteLocalData, deleteLocalDataOnly, and resetAccount are now in the store
 
   const deleteBackendData = async () => {
     try {
@@ -463,7 +447,7 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
       await deleteBackendData();
 
       // Delete local data
-      deleteLocalData();
+      await deleteLocalDataOnly();
 
       showToast('🗑️ ALL data deleted (local + backend)');
     } catch (error: unknown) {
@@ -594,7 +578,7 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
       } else if (step.action === 'delete-local' && step.entity) {
         console.log(`🎭 Executing step: ${step.actor} deletes ${step.entity} locally`);
         // For now, just delete all local data as a placeholder
-        await deleteLocalData();
+        await deleteLocalDataOnly();
       } else {
         console.log(`🎭 Skipping unsupported step: ${step.action}`);
       }
@@ -668,7 +652,7 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
     >
       {/* Drag Handle */}
       <div
-        className="drag-handle cursor-grab active:cursor-grabbing p-3 border-b border-neutral-700"
+        className="drag-header drag-handle cursor-grab active:cursor-grabbing p-3 border-b border-neutral-700"
         onMouseDown={handleMouseDown}
       >
         <div className="flex items-center justify-between">
@@ -793,9 +777,9 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
                   <div className="text-neutral-500 text-xs">Delete Operations:</div>
                   <div className="grid grid-cols-3 gap-1">
                     <button
-                      onClick={deleteLocalData}
+                      onClick={deleteLocalDataOnly}
                       className="px-2 py-1 text-xs bg-red-600 hover:bg-red-700 rounded"
-                      title="Delete all local (in-memory) data"
+                      title="Delete all local bookmark data"
                     >
                       Del Local
                     </button>
@@ -815,6 +799,21 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
                     </button>
                   </div>
                 </div>
+
+                <button
+                  onClick={deleteLocalDataOnly}
+                  className="px-2 py-1 text-xs bg-red-600 hover:bg-red-700 rounded"
+                  title="Delete all local bookmark data (books/pages)"
+                >
+                  Delete Local Data
+                </button>
+                <button
+                  onClick={resetAccount}
+                  className="px-2 py-1 text-xs bg-red-600 hover:bg-red-700 rounded"
+                  title="Reset account to default data"
+                >
+                  Reset Account
+                </button>
 
                 {/* Recently Created Items (Expandable) */}
                 {(books.length > 0 || pages.length > 0) && (
