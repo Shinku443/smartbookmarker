@@ -120,6 +120,7 @@ type State = {
   isSyncing: boolean;
   syncError: string | null;
   lastSyncAt: string | null;
+  syncPaused: boolean;
 
   // Pending mutations for offline-first behavior
   pendingMutations: PendingMutation[];
@@ -130,6 +131,8 @@ type State = {
   syncLocalStorageToCouchDB: () => Promise<void>;
   loadFromLocalDB: () => Promise<void>;
   startBackgroundSync: () => void;
+  pauseSync: () => void;
+  resumeSync: () => void;
 
   // CRUD operations
   createBook: (input: { title: string; emoji?: string | null }) => Promise<Book>;
@@ -157,6 +160,7 @@ export const useBookmarksStore = create<State>((set, get) => ({
   isSyncing: false,
   syncError: null,
   lastSyncAt: null,
+  syncPaused: false,
   pendingMutations: [],
 
   async initializeCouchDB() {
@@ -264,14 +268,17 @@ export const useBookmarksStore = create<State>((set, get) => ({
   },
 
   startBackgroundSync() {
-    const { localDB, remoteDB } = get();
-    if (!localDB || !remoteDB) return;
+    const { localDB, remoteDB, syncPaused } = get();
+    if (!localDB || !remoteDB || syncPaused) return;
 
     // Set up continuous sync
     const sync = PouchDB.sync(localDB, remoteDB, {
       live: true,
       retry: true
     });
+
+    // Store the sync object for pause/resume functionality
+    (get() as any).currentSync = sync;
 
     sync.on('change', (info: any) => {
       console.log('🔄 Sync change:', info);
@@ -306,6 +313,28 @@ export const useBookmarksStore = create<State>((set, get) => ({
         syncError: err.message || 'Sync failed'
       });
     });
+  },
+
+  pauseSync() {
+    console.log('⏸️ [SYNC] User requested to pause background sync');
+    set({ syncPaused: true });
+    showToast('⏸️ Background sync paused');
+
+    // Cancel any currently running sync
+    const store = get() as any;
+    if (store.currentSync) {
+      console.log('⏸️ [SYNC] Canceling active sync process');
+      store.currentSync.cancel();
+      store.currentSync = null;
+    }
+  },
+
+  resumeSync() {
+    console.log('▶️ [SYNC] User requested to resume background sync');
+    set({ syncPaused: false });
+    showToast('▶️ Background sync resumed');
+    // Restart the background sync
+    get().startBackgroundSync();
   },
 
   async syncWithRemote() {

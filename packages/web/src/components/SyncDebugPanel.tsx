@@ -295,10 +295,7 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
       const result = await response.json();
       console.log('✅ Book created via API:', result);
 
-      // Trigger sync to bring new data into local store
-      await triggerSync();
-
-      showToast(`✅ Book created in CouchDB: ${title}\nCheck http://localhost:5984/_utils/ to verify`);
+      showToast(`✅ Book created in CouchDB: ${title}\nNow manually sync to pull into local storage`);
     } catch (error: unknown) {
       console.error('❌ Failed to create book via API:', error);
       showToast(`❌ API Error: ${error instanceof Error ? error.message : String(error)}`);
@@ -340,10 +337,7 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
       const result = await response.json();
       console.log('✅ Page created via API:', result);
 
-      // Trigger sync to bring new data into local store
-      await triggerSync();
-
-      showToast(`✅ Page created in CouchDB: ${pageTitle}\nCheck http://localhost:5984/_utils/ to verify`);
+      showToast(`✅ Page created in CouchDB: ${pageTitle}\nNow manually sync to pull into local storage`);
     } catch (error: unknown) {
       console.error('❌ Failed to create page via API:', error);
       showToast(`❌ API Error: ${error instanceof Error ? error.message : String(error)}`);
@@ -351,7 +345,7 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
   };
 
   // Get store state and functions
-  const { deleteLocalDataOnly, resetAccount, pendingMutations } = useBookmarksStore();
+  const { deleteLocalDataOnly, resetAccount, pendingMutations, syncPaused, pauseSync, resumeSync, isSyncing } = useBookmarksStore();
 
   // Delete functions - now handled by store functions
   // deleteLocalData, deleteLocalDataOnly, and resetAccount are now in the store
@@ -454,7 +448,7 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
   };
 
   // Use real data from the store
-  const { isInitialized, isSyncing, syncError, lastSyncAt, initializeCouchDB } = useBookmarksStore();
+  const { isInitialized, syncError, lastSyncAt, initializeCouchDB } = useBookmarksStore();
 
   // Mock function for the sync button (different name to avoid conflict)
   const manualSync = async () => {
@@ -661,6 +655,25 @@ export function SyncDebugPanel({ books: propBooks, bookmarks, onCreateBook, onCr
                 className="px-2 py-0.5 rounded border border-green-500 hover:bg-green-800 text-green-400"
               >
                 Init
+              </button>
+            )}
+            {syncPaused ? (
+              <button
+                onClick={resumeSync}
+                disabled={!isInitialized}
+                className="px-2 py-0.5 rounded border border-green-500 hover:bg-green-700 disabled:opacity-50"
+                title="Resume background sync"
+              >
+                ▶️
+              </button>
+            ) : (
+              <button
+                onClick={pauseSync}
+                disabled={!isInitialized}
+                className="px-2 py-0.5 rounded border border-yellow-500 hover:bg-yellow-700 disabled:opacity-50"
+                title="Pause background sync"
+              >
+                ⏸️
               </button>
             )}
             <button
