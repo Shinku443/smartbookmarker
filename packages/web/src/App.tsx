@@ -35,6 +35,7 @@ import { useAISettings } from "./hooks/useAISettings";
 import { useAppSettings } from "./hooks/useAppSettings";
 import { sortBookmarks } from "./utils/bookmarkSorter";
 import { loadViewSettings, saveViewSettings } from "./storage/webStorage";
+import { useBookmarksStore } from "./store/useBookmarksStore";
 import {
   createBooksFromFolders,
   processImportedBookmarks,
@@ -212,6 +213,9 @@ export default function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [keyboardNavigationIndex, setKeyboardNavigationIndex] = useState<number>(-1);
 
+  // Force re-render counter for debugging UI updates
+  const [forceUpdateCounter, setForceUpdateCounter] = useState(0);
+
   /**
    * DnD Sensors
    * -----------
@@ -276,9 +280,10 @@ export default function App() {
    * Uses configurable sorting from app settings.
    */
   const sortedByOrder = useMemo(() => {
-    if (appSettings.verboseDebug) {
-      console.log('🔄 Recalculating sortedByOrder, bookmarks length:', bookmarks.length);
-    }
+    console.log('🔄 Recalculating sortedByOrder, bookmarks length:', bookmarks.length);
+    console.log('🔄 App component - books:', books.length, 'bookmarks:', bookmarks.length);
+    console.log('🔄 App component - last 3 books:', books.slice(-3).map(b => ({ id: b.id, name: b.name })));
+    console.log('🔄 App component - last 3 bookmarks:', bookmarks.slice(-3).map(b => ({ id: b.id, title: b.title })));
     const idToBookmark = new Map(bookmarks.map((b) => [b.id, b]));
     let result: RichBookmark[] = [];
 
@@ -775,6 +780,19 @@ export default function App() {
     editingBookmark, retaggingBookmark, showSettings
   ]);
 
+  // Initialize CouchDB on app start
+  useEffect(() => {
+    useBookmarksStore.getState().initializeCouchDB();
+  }, []);
+
+  // Force re-render when hook data changes
+  useEffect(() => {
+    console.log('🔄 App component - FORCE UPDATE EFFECT triggered');
+    console.log('🔄 App component - books.length:', books.length, 'bookmarks.length:', bookmarks.length);
+    console.log('🔄 App component - Setting force update counter to:', forceUpdateCounter + 1);
+    setForceUpdateCounter(prev => prev + 1);
+  }, [books.length, bookmarks.length]);
+
   // Set up keyboard event listeners
   useEffect(() => {
     document.addEventListener('keydown', handleKeyboardShortcuts);
@@ -817,7 +835,14 @@ export default function App() {
       </DragOverlay>
 
 <div>
-  {appSettings.verboseDebug && <SyncDebugPanel />}
+  {appSettings.verboseDebug && (
+    <SyncDebugPanel
+      books={books}
+      bookmarks={bookmarks}
+      onCreateBook={addBook}
+      onCreatePage={addBookmarkWithDescription}
+    />
+  )}
 </div>
       <Layout
         sidebar={
@@ -897,7 +922,7 @@ export default function App() {
             />
 
             <BookmarkList
-              key={`bookmark-list-${activeBookId || 'all'}-${sortedByOrder.length}`}
+              key={`bookmark-list-${activeBookId || 'all'}-${sortedByOrder.length}-${books.length}-${bookmarks.length}`}
               bookmarks={sortedByOrder}
               books={books}
               selectedIds={selectedIds}

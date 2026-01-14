@@ -9,4 +9,5 @@ import type { Bookmark } from "@smart/core";
 export type RichBookmark = Bookmark & {
   pinned?: boolean; // UI-only
   readLater?: boolean; // UI-only: separate from pinned for "read later" functionality
+  couchdbId?: string; // CouchDB document ID for API operations
 };

@@ -9,6 +9,12 @@
     <div id="root"></div>
     <!-- Book Action Menu Portal Root -->
     <div id="book-action-menu-root"></div>
+    <!-- Global polyfill for PouchDB -->
+    <script>
+      if (typeof global === 'undefined') {
+        window.global = window;
+      }
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

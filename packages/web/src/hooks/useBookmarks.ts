@@ -9,10 +9,10 @@ import { loadBookmarks, saveBookmarks } from "../storage/webStorage";
 import { Book } from "../models/Book";
 import { RichBookmark } from "../models/RichBookmark";
 import { PersistedData } from "../models/PersistedData";
-import { SyncClient } from "../sync/syncClient";
-import type { SyncState, SyncPayload } from "../sync/types";
-import { syncLog } from "../sync/logger";
 import { createPage } from "../api/pages";
+import { useBookmarksStore } from "../store/useBookmarksStore";
+
+// TODO: Remove all sync-related code and replace with CouchDB integration
 
 /**
  * useBookmarks Hook
@@ -33,18 +33,49 @@ export function useBookmarks() {
   const [rootOrder, setRootOrder] = useState<string[]>([]); // Order for ungrouped bookmarks
   const [pinnedOrder, setPinnedOrder] = useState<string[]>([]); // Order for pinned bookmarks
   const [loading, setLoading] = useState(true);
+  const [updateCounter, setUpdateCounter] = useState(0); // Force re-render counter
 
-  // NEW: sync state
-  const [syncState, setSyncState] = useState<SyncState>({
-    lastSyncAt: localStorage.getItem("lastSyncAt"),
-    pending: false,
-    error: null,
-  });
+  /**
+   * reloadData
+   * ----------
+   * Reloads data from localStorage and updates state.
+   * Used when external changes to localStorage occur (like during sync).
+   */
+  const reloadData = async () => {
+    console.log('[useBookmarks] Reloading data from localStorage...');
+    const loaded = await loadBookmarks();
+    const data = loaded as PersistedData;
 
-  // NEW: one SyncClient instance
-  const [syncClient] = useState(
-    () => new SyncClient(), // use direct API connection
-  );
+    if (Array.isArray(data)) {
+      // Legacy format: just an array of bookmarks
+      const arr = data;
+      setBookmarks(arr);
+      setBooks([]);
+      setRootOrder(arr.map((b) => b.id));
+      setPinnedOrder(arr.filter((b) => b.pinned).map((b) => b.id));
+    } else {
+      // New structured format
+      const nextBookmarks = data.bookmarks ?? [];
+      const nextBooks = data.books ?? [];
+      setBookmarks(nextBookmarks);
+      setBooks(nextBooks);
+      setRootOrder(
+        data.rootOrder && data.rootOrder.length
+          ? data.rootOrder
+          : nextBookmarks.map((b) => b.id)
+      );
+      setPinnedOrder(
+        data.pinnedOrder && data.pinnedOrder.length
+          ? data.pinnedOrder
+          : nextBookmarks.filter((b) => b.pinned).map((b) => b.id)
+      );
+    }
+
+    console.log(`[useBookmarks] Reloaded: ${data.books?.length || 0} books, ${data.bookmarks?.length || 0} bookmarks`);
+    setUpdateCounter(prev => prev + 1); // Force re-render
+  };
+
+
 
   /**
    * Data Loading Effect
@@ -54,7 +85,8 @@ export function useBookmarks() {
    * Initializes ordering arrays if not present.
    */
   useEffect(() => {
-    loadBookmarks().then((loaded) => {
+    const loadData = async () => {
+      const loaded = await loadBookmarks();
       const data = loaded as PersistedData;
 
       if (Array.isArray(data)) {
@@ -83,29 +115,24 @@ export function useBookmarks() {
       }
 
       setLoading(false);
-    });
+    };
+
+    loadData();
+
+    // Listen for reload events (triggered by sync operations)
+    const handleReload = () => {
+      console.log('[useBookmarks] Received reload event, reloading data...');
+      loadData();
+    };
+
+    window.addEventListener('bookmarks-reload', handleReload);
+
+    return () => {
+      window.removeEventListener('bookmarks-reload', handleReload);
+    };
   }, []);
 
-  // SYNC TRIGGERS
-  // Sync once after initial load completes
-  useEffect(() => {
-    if (!loading) {
-      // fire-and-forget; errors are tracked in syncState
-      syncWithServer();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading]);
 
-  // Sync whenever the window regains focus
-  useEffect(() => {
-    function handleFocus() {
-      syncWithServer();
-    }
-
-    window.addEventListener("focus", handleFocus);
-    return () => window.removeEventListener("focus", handleFocus);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   /**
    * persistAll
@@ -124,25 +151,37 @@ export function useBookmarks() {
     nextRootOrder: string[] = rootOrder,
     nextPinnedOrder: string[] = pinnedOrder
   ) {
-    setBookmarks(nextBookmarks);
-    setBooks(nextBooks);
-    setRootOrder(nextRootOrder);
-    setPinnedOrder(nextPinnedOrder);
+    console.log(`[PERSIST] persistAll called with nextBooks: ${nextBooks?.length || 0}, current books: ${books?.length || 0}`);
+
+    // Force new array references to ensure React detects changes
+    const freshBookmarks = [...nextBookmarks];
+    const freshBooks = [...(nextBooks || [])];
+    const freshRootOrder = [...nextRootOrder];
+    const freshPinnedOrder = [...nextPinnedOrder];
+
+    console.log(`[PERSIST] Setting books to: ${freshBooks.length}`);
+    setBookmarks(freshBookmarks);
+    setBooks(freshBooks);
+    setRootOrder(freshRootOrder);
+    setPinnedOrder(freshPinnedOrder);
 
     saveBookmarks({
-      bookmarks: nextBookmarks,
-      books: nextBooks,
-      rootOrder: nextRootOrder,
-      pinnedOrder: nextPinnedOrder
+      bookmarks: freshBookmarks,
+      books: freshBooks,
+      rootOrder: freshRootOrder,
+      pinnedOrder: freshPinnedOrder
     });
 
     // Update lastSyncedData to reflect current state for proper sync behavior
     // This ensures that subsequent syncs know what we currently have locally
     localStorage.setItem("lastSyncedData", JSON.stringify({
-      bookmarks: nextBookmarks.map(b => b.id),
-      books: nextBooks.map(b => b.id),
+      bookmarks: freshBookmarks.map(b => b.id),
+      books: freshBooks.map(b => b.id),
       syncedAt: new Date().toISOString()
     }));
+
+    // Trigger additional re-render by updating a counter
+    setUpdateCounter(prev => prev + 1);
   }
 
   /**
@@ -175,7 +214,7 @@ export function useBookmarks() {
    * @param parentBookId - Parent book ID, or null for root level
    * @returns The newly created book
    */
-  function addBook(name: string, parentBookId: string | null = null): Book {
+  async function addBook(name: string, parentBookId: string | null = null): Promise<Book> {
     console.log(`[BOOK CREATE] Creating book "${name}" ${parentBookId ? `under parent ${parentBookId}` : 'at root level'}`);
 
     const now = Date.now();
@@ -188,7 +227,33 @@ export function useBookmarks() {
       parentBookId
     };
 
-    const nextBooks = [...books, newBook];
+    // Also save directly to CouchDB API (like pages do)
+    let couchdbId: string | undefined;
+    try {
+      console.log(`[BOOK CREATE] Saving to CouchDB API...`);
+      const response = await fetch('http://localhost:4000/books', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: name,
+          emoji: null
+        })
+      });
+
+      if (response.ok) {
+        const couchdbBook = await response.json();
+        couchdbId = couchdbBook._id; // Use _id like pages do
+        console.log(`[BOOK CREATE] Saved to CouchDB API:`, couchdbId);
+      } else {
+        console.error(`[BOOK CREATE] CouchDB API failed:`, response.status);
+      }
+    } catch (error) {
+      console.error(`[BOOK CREATE] CouchDB API error:`, error);
+    }
+
+    // Add the CouchDB ID to the book
+    const bookWithCouchdbId = { ...newBook, couchdbId };
+    const nextBooks = [...books, bookWithCouchdbId];
     persistAll(bookmarks, nextBooks);
 
     console.log(`[BOOK CREATE] Book created with ID: ${newBook.id}`);
@@ -255,7 +320,31 @@ export function useBookmarks() {
    *
    * @param id - Book ID to delete
    */
-  function deleteBook(id: string) {
+  async function deleteBook(id: string) {
+    console.log(`[BOOK DELETE] Deleting book ${id} from UI`);
+
+    // Find the book to get its CouchDB ID
+    const book = books.find(b => b.id === id);
+    const couchdbId = book?.couchdbId || id; // Fallback to local ID if no CouchDB ID
+
+    console.log(`[BOOK DELETE] Using CouchDB ID: ${couchdbId}`);
+
+    // Also delete from CouchDB API
+    try {
+      console.log(`[BOOK DELETE] Deleting from CouchDB API...`);
+      const response = await fetch(`http://localhost:4000/books/${couchdbId}`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        console.log(`[BOOK DELETE] Successfully deleted from CouchDB API`);
+      } else {
+        console.error(`[BOOK DELETE] CouchDB API delete failed:`, response.status);
+      }
+    } catch (error) {
+      console.error(`[BOOK DELETE] CouchDB API error:`, error);
+    }
+
     const nextBooks = books.filter((b) => b.id !== id);
     const nextBookmarks = bookmarks.map((bm) =>
       bm.bookId === id ? { ...bm, bookId: null } : bm
@@ -269,7 +358,9 @@ export function useBookmarks() {
       ...Array.from(removedIds).filter((id) => !rootOrder.includes(id))
     ];
 
-    persistAll(nextBookmarks, nextBooks, nextRootOrder);
+      console.log(`[BOOK DELETE] Before persistAll - books: ${books.length}, nextBooks: ${nextBooks.length}`);
+      persistAll(nextBookmarks, nextBooks, nextRootOrder);
+      console.log(`[BOOK DELETE] After persistAll - books should be updated`);
   }
 
   /**
@@ -464,12 +555,17 @@ export function useBookmarks() {
     userTagLabels: string[] = []
   ) {
     try {
+      // Generate ID on frontend (like books do)
+      const frontendId = `page_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
       // Try to create via API first (for scraping)
       const apiBookmark = await createPage({
+        id: frontendId, // Send frontend-generated ID
         bookId: bookId ?? undefined,
         title,
         url,
-        content: "" // Will be filled by scraping
+        content: "", // Will be filled by scraping
+        tags: userTagLabels // Pass tags to API
       });
 
       // Convert API response to RichBookmark format
@@ -486,7 +582,8 @@ export function useBookmarks() {
         pinned: apiBookmark.pinned,
         extractedText: apiBookmark.extractedText || undefined,
         screenshotUrl: apiBookmark.screenshotUrl || undefined,
-        metaDescription: apiBookmark.metaDescription || undefined
+        metaDescription: apiBookmark.metaDescription || undefined,
+        couchdbId: apiBookmark._id // Store the CouchDB document ID
       };
 
       const nextBookmarks = [...bookmarks, newBookmark];
@@ -502,6 +599,7 @@ export function useBookmarks() {
         );
       }
 
+      console.log(`[PAGE CREATE] Created page: "${title}" (${url})`);
       persistAll(nextBookmarks, nextBooks, nextRootOrder);
     } catch (error) {
       console.error("Failed to create bookmark via API, falling back to local:", error);
@@ -596,10 +694,30 @@ export function useBookmarks() {
    *
    * @param id - Bookmark ID to delete
    */
-  function deleteBookmark(id: string) {
+  async function deleteBookmark(id: string) {
     console.log(`[BOOKMARK DELETE] Deleting bookmark ${id}`);
     const bookmark = bookmarks.find(b => b.id === id);
     console.log(`[BOOKMARK DELETE] Bookmark details: "${bookmark?.title}" (${bookmark?.url})`);
+
+    // Find the bookmark to get its CouchDB ID
+    const couchdbId = bookmark?.couchdbId || id; // Fallback to local ID if no CouchDB ID
+    console.log(`[BOOKMARK DELETE] Using CouchDB ID: ${couchdbId}`);
+
+    // Also delete from CouchDB API
+    try {
+      console.log(`[BOOKMARK DELETE] Deleting from CouchDB API...`);
+      const response = await fetch(`http://localhost:4000/pages/${couchdbId}`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        console.log(`[BOOKMARK DELETE] Successfully deleted from CouchDB API`);
+      } else {
+        console.error(`[BOOKMARK DELETE] CouchDB API delete failed:`, response.status);
+      }
+    } catch (error) {
+      console.error(`[BOOKMARK DELETE] CouchDB API error:`, error);
+    }
 
     const nextBookmarks = bookmarks.filter((b) => b.id !== id);
 
@@ -709,221 +827,6 @@ export function useBookmarks() {
 
     persistAll(next);
   }
-  async function syncWithServer() {
-    syncLog("syncWithServer() called");
-
-    setSyncState((prev) => ({ ...prev, pending: true, error: null }));
-
-    try {
-      // First, push any local changes to the server
-      await pushLocalChanges();
-
-      // Then pull latest changes from server
-      // Force full sync if client has no local data
-      const hasLocalData = bookmarks.length > 0 || books.length > 0;
-      const forceFull = !hasLocalData;
-      const payload = await syncClient.sync(forceFull);
-
-      if (!payload) {
-        syncLog("syncWithServer(): no payload returned");
-        throw new Error("Sync failed");
-      }
-
-      syncLog("Applying sync payload…");
-      applySyncPayload(payload);
-
-      const lastSyncAt = localStorage.getItem("lastSyncAt");
-      syncLog("Sync applied. lastSyncAt =", lastSyncAt);
-
-      setSyncState((prev) => ({
-        ...prev,
-        pending: false,
-        lastSyncAt,
-      }));
-    } catch (err: any) {
-      syncLog("syncWithServer() error:", err);
-
-      setSyncState((prev) => ({
-        ...prev,
-        pending: false,
-        error: err?.message ?? "Unknown sync error",
-      }));
-    }
-  }
-
-  async function pushLocalChanges() {
-    const lastSyncAt = localStorage.getItem("lastSyncAt");
-    const lastSyncTime = lastSyncAt ? new Date(lastSyncAt).getTime() : 0;
-    const now = Date.now();
-
-    // If lastSyncAt is in the future (server timestamp issue), push all local items
-    const isLastSyncInFuture = lastSyncTime > now + 1000; // 1 second grace period
-    const effectiveLastSyncTime = isLastSyncInFuture ? 0 : lastSyncTime;
-
-    // Find bookmarks that were created or updated since last sync
-    const changedBookmarks = bookmarks.filter(b =>
-      b.createdAt > effectiveLastSyncTime || b.updatedAt > effectiveLastSyncTime
-    );
-
-    // Find books that were created or updated since last sync
-    const changedBooks = books.filter(b =>
-      b.createdAt > lastSyncTime || b.updatedAt > lastSyncTime
-    );
-
-    // Get previously synced items to detect deletions
-    const lastSyncedData = localStorage.getItem("lastSyncedData");
-    let lastSyncedBookmarks: string[] = [];
-    let lastSyncedBooks: string[] = [];
-
-    if (lastSyncedData) {
-      try {
-        const parsed = JSON.parse(lastSyncedData);
-        lastSyncedBookmarks = parsed.bookmarks || [];
-        lastSyncedBooks = parsed.books || [];
-      } catch (e) {
-        // Ignore parsing errors
-      }
-    }
-
-    // Detect deletions: items that existed before but don't exist now
-    const currentBookmarkIds = new Set(bookmarks.map(b => b.id));
-    const deletedBookmarkIds = lastSyncedBookmarks.filter(id => !currentBookmarkIds.has(id));
-
-    const currentBookIds = new Set(books.map(b => b.id));
-    const deletedBookIds = lastSyncedBooks.filter(id => !currentBookIds.has(id));
-
-    // Push deletions to server
-    for (const bookmarkId of deletedBookmarkIds) {
-      try {
-        await syncClient.pushDeletion("page", bookmarkId);
-        syncLog(`Pushed deletion for bookmark: ${bookmarkId}`);
-      } catch (error) {
-        syncLog(`Failed to push deletion for bookmark ${bookmarkId}:`, error);
-      }
-    }
-
-    for (const bookId of deletedBookIds) {
-      try {
-        await syncClient.pushDeletion("book", bookId);
-        syncLog(`Pushed deletion for book: ${bookId}`);
-      } catch (error) {
-        syncLog(`Failed to push deletion for book ${bookId}:`, error);
-      }
-    }
-
-    if (changedBookmarks.length === 0 && changedBooks.length === 0 && deletedBookmarkIds.length === 0 && deletedBookIds.length === 0) {
-      syncLog("No local changes to push");
-      return;
-    }
-
-    syncLog("Pushing local changes:", {
-      bookmarks: changedBookmarks.length,
-      books: changedBooks.length,
-      deletedBookmarks: deletedBookmarkIds.length,
-      deletedBooks: deletedBookIds.length
-    });
-
-    // Convert to push payload format
-    const pushPayload = {
-      books: changedBooks.map(book => ({
-        id: book.id,
-        title: book.name,
-        emoji: book.icon || null,
-        order: 0, // TODO: implement proper ordering
-        parentBookId: book.parentBookId,
-        createdAt: new Date(book.createdAt).toISOString(),
-        updatedAt: new Date(book.updatedAt).toISOString(),
-      })),
-      pages: changedBookmarks.map(bookmark => ({
-        id: bookmark.id,
-        bookId: bookmark.bookId || null,
-        title: bookmark.title,
-        content: bookmark.url || "",
-        order: 0, // TODO: implement proper ordering
-        pinned: bookmark.pinned ?? false,
-        createdAt: new Date(bookmark.createdAt).toISOString(),
-        updatedAt: new Date(bookmark.updatedAt).toISOString(),
-        tagIds: bookmark.tags?.map(t => t.label) || [],
-      })),
-      tags: [], // TODO: implement tag sync
-    };
-
-    const success = await syncClient.push(pushPayload);
-    if (!success) {
-      throw new Error("Failed to push local changes");
-    }
-
-    // Update last synced data
-    localStorage.setItem("lastSyncedData", JSON.stringify({
-      bookmarks: bookmarks.map(b => b.id),
-      books: books.map(b => b.id),
-      syncedAt: new Date().toISOString()
-    }));
-
-    syncLog("Local changes pushed successfully");
-  }
-
-  function applySyncPayload(payload: SyncPayload) {
-    syncLog("applySyncPayload()", payload);
-
-    const { books: serverBooks, pages: serverPages, tags: serverTags } = payload;
-
-    // Validate and fix server books
-    const validatedServerBooks = serverBooks.map((book: any) => ({
-      ...book,
-      order: Array.isArray(book.order) ? book.order : []
-    }));
-
-    // Map backend pages -> RichBookmarks
-    const incomingBookmarks: RichBookmark[] = serverPages.map(mapPageToRichBookmark);
-
-    syncLog("Merging books:", validatedServerBooks.length);
-    syncLog("Merging bookmarks:", incomingBookmarks.length);
-
-    // Get previously synced items to avoid re-adding locally deleted items
-    const lastSyncedData = localStorage.getItem("lastSyncedData");
-    let lastSyncedBookmarkIds: string[] = [];
-    let lastSyncedBookIds: string[] = [];
-
-    if (lastSyncedData) {
-      try {
-        const parsed = JSON.parse(lastSyncedData);
-        lastSyncedBookmarkIds = parsed.bookmarks || [];
-        lastSyncedBookIds = parsed.books || [];
-      } catch (e) {
-        // Ignore parsing errors
-      }
-    }
-
-    // Offline-first merge: only add new items from server, never overwrite local
-    // But don't re-add items that were previously synced and then deleted locally
-    const nextBooks = mergeOfflineFirstWithDeletionAwareness(books, validatedServerBooks, lastSyncedBookIds);
-    const nextBookmarks = mergeOfflineFirstWithDeletionAwareness(bookmarks, incomingBookmarks, lastSyncedBookmarkIds);
-
-    syncLog("Merged state:", {
-      books: nextBooks.length,
-      bookmarks: nextBookmarks.length,
-    });
-
-    // Update ordering to include any new bookmarks from server
-    const existingBookmarkIds = new Set(bookmarks.map(b => b.id));
-    const newBookmarkIds = incomingBookmarks
-      .filter(b => !existingBookmarkIds.has(b.id))
-      .map(b => b.id);
-
-    const nextRootOrder = [...rootOrder, ...newBookmarkIds.filter(id => !rootOrder.includes(id))];
-
-    // Update pinned order for newly synced pinned bookmarks
-    const newPinnedBookmarkIds = incomingBookmarks
-      .filter(b => b.pinned && !pinnedOrder.includes(b.id))
-      .map(b => b.id);
-
-    const nextPinnedOrder = [...pinnedOrder, ...newPinnedBookmarkIds];
-
-    persistAll(nextBookmarks, nextBooks, nextRootOrder, nextPinnedOrder);
-    syncLog("State persisted after sync");
-  }
-
   // Return all state and handlers
   return {
     bookmarks,
@@ -931,8 +834,6 @@ export function useBookmarks() {
     rootOrder,
     pinnedOrder,
     loading,
-    syncState,
-    syncWithServer,
 
     addBookmark,
     deleteBookmark,
@@ -956,94 +857,5 @@ export function useBookmarks() {
     // Internal functions for import
     computeFavicon,
     persistAll
-  };
-}
-
-
-function mergeOfflineFirst<T extends { id: string }>(existing: T[], incoming: T[]): T[] {
-  const map = new Map(existing.map((e) => [e.id, e]));
-
-  for (const item of incoming) {
-    // Only add items that don't exist locally - never overwrite local data
-    if (!map.has(item.id)) {
-      // For new items, map fields if needed
-      if ('title' in item && !('name' in item)) {
-        // Server book -> client book
-        const clientItem = {
-          ...item,
-          name: (item as any).title,
-          icon: (item as any).emoji,
-        } as any;
-        delete clientItem.title;
-        delete clientItem.emoji;
-        map.set(item.id, clientItem as T);
-      } else {
-        map.set(item.id, item);
-      }
-    }
-    // If item exists locally, we keep the local version (offline-first)
-  }
-
-  return Array.from(map.values());
-}
-
-function mergeOfflineFirstWithDeletionAwareness<T extends { id: string }>(existing: T[], incoming: T[], lastSyncedIds: string[]): T[] {
-  const map = new Map(existing.map((e) => [e.id, e]));
-  const existingIds = new Set(existing.map(e => e.id));
-  const lastSyncedIdsSet = new Set(lastSyncedIds);
-
-  for (const item of incoming) {
-    // Only add items that don't exist locally AND weren't previously synced (to avoid re-adding deleted items)
-    if (!map.has(item.id) && !lastSyncedIdsSet.has(item.id)) {
-      // This is a truly new item from the server that we haven't seen before
-      // For new items, map fields if needed
-      if ('title' in item && !('name' in item)) {
-        // Server book -> client book
-        const clientItem = {
-          ...item,
-          name: (item as any).title,
-          icon: (item as any).emoji,
-        } as any;
-        delete clientItem.title;
-        delete clientItem.emoji;
-        map.set(item.id, clientItem as T);
-      } else {
-        map.set(item.id, item);
-      }
-    }
-    // If item exists locally, we keep the local version (offline-first)
-    // If item was previously synced but doesn't exist locally, it was deleted locally - don't re-add
-  }
-
-  return Array.from(map.values());
-}
-
-// Map backend Page to your RichBookmark model
-function mapPageToRichBookmark(page: any): RichBookmark {
-  let tags: BookmarkTag[] = [];
-  try {
-    if (page.tags && Array.isArray(page.tags)) {
-      tags = page.tags
-        .filter((pt: any) => pt && pt.tag && pt.tag.name)
-        .map((pt: any) => ({
-          label: pt.tag.name,
-          type: "auto" as BookmarkTag["type"],
-        }));
-    }
-  } catch (error) {
-    console.warn(`Failed to parse tags for page ${page.id}:`, error);
-  }
-
-  return {
-    id: page.id,
-    bookId: page.bookId ?? null,
-    title: page.title,
-    url: page.content ?? "",
-    createdAt: new Date(page.createdAt).getTime(),
-    updatedAt: new Date(page.updatedAt).getTime(),
-    faviconUrl: "", // Server doesn't store this, will be preserved from local
-    tags,
-    source: "imported", // Will be preserved from local if exists
-    pinned: page.pinned ?? false,
   };
 }

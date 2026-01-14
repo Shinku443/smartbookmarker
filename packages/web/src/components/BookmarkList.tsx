@@ -37,11 +37,9 @@ import type { ViewMode, InfoVisibility } from "./SettingsScreen";
 import {
   logBulkOperationStart,
   logBulkOperationCompletion,
-  logBulkOperationFailure,
-  bulkDebug,
-  bulkInfo,
-  bulkWarn
-} from "../sync/bulkLogger";
+  logBulkOperationFailure
+} from "../utils/bulkLogger";
+
 
 /**
  * bubbleSortStrategy
@@ -252,26 +250,23 @@ export default function BookmarkList({
   async function deleteSelected() {
     try {
       logBulkOperationStart('bulk-delete', selectedIds.length, 'BookmarkList');
-      const startTime = Date.now();
-      
+
       // Calculate new state - filter out all selected bookmarks
       const nextBookmarks = bookmarks.filter((b) => !selectedIds.includes(b.id));
       const nextRootOrder = rootOrder.filter((x) => !selectedIds.includes(x));
       const nextPinnedOrder = pinnedOrder.filter((x) => !selectedIds.includes(x));
-      const nextBooks = books.map((b) => ({ 
-        ...b, 
-        order: (b.order ?? []).filter((x) => !selectedIds.includes(x)) 
+      const nextBooks = books.map((b) => ({
+        ...b,
+        order: (b.order ?? []).filter((x) => !selectedIds.includes(x))
       }));
-      
+
       // Single atomic state update - prevents stale closure issues
       persistAll(nextBookmarks, nextBooks, nextRootOrder, nextPinnedOrder);
       setSelectedIds([]);
-      
-      const durationMs = Date.now() - startTime;
+
       logBulkOperationCompletion('bulk-delete', selectedIds.length, selectedIds.length);
-      bulkInfo('Bulk delete completed', { deletedCount: selectedIds.length, newBookmarksCount: nextBookmarks.length, durationMs });
-    } catch (error) {
-      logBulkOperationFailure('bulk-delete', error as Error, { selectedIds });
+    } catch (error: any) {
+      logBulkOperationFailure('bulk-delete', error instanceof Error ? error : new Error(String(error)), { selectedIds });
       setSelectedIds([]);
     }
   }
@@ -283,20 +278,13 @@ export default function BookmarkList({
    * Validates that at least one bookmark is selected.
    */
   function tagSelected() {
-    try {
-      logBulkOperationStart('bulk-tag', selectedIds.length, 'BookmarkList');
-      const selectedBookmarks = bookmarks.filter(b => selectedIds.includes(b.id));
-      
-      if (selectedBookmarks.length === 0) { 
-        bulkWarn('No bookmarks selected for tagging operation'); 
-        return; 
-      }
-      
-      onMultiRetag(selectedBookmarks);
-      logBulkOperationCompletion('bulk-tag', selectedBookmarks.length, selectedBookmarks.length);
-    } catch (error) {
-      logBulkOperationFailure('bulk-tag', error as Error, { selectedIds });
+    const selectedBookmarks = bookmarks.filter(b => selectedIds.includes(b.id));
+
+    if (selectedBookmarks.length === 0) {
+      return;
     }
+
+    onMultiRetag(selectedBookmarks);
   }
 
   /**
@@ -307,8 +295,6 @@ export default function BookmarkList({
    */
   async function pinSelected() {
     try {
-      logBulkOperationStart('bulk-pin', selectedIds.length, 'BookmarkList');
-
       // Calculate new state - update pinned status and order
       const nextBookmarks = bookmarks.map((b) =>
         selectedIds.includes(b.id) ? { ...b, pinned: true } : b
@@ -324,10 +310,8 @@ export default function BookmarkList({
 
       // Single atomic state update
       persistAll(nextBookmarks, books, rootOrder, nextPinnedOrder);
-
-      logBulkOperationCompletion('bulk-pin', selectedIds.length, selectedIds.length);
     } catch (error) {
-      logBulkOperationFailure('bulk-pin', error as Error, { selectedIds });
+      console.error('Bulk pin failed:', error);
     }
   }
 
@@ -339,8 +323,6 @@ export default function BookmarkList({
    */
   async function unpinSelected() {
     try {
-      logBulkOperationStart('bulk-unpin', selectedIds.length, 'BookmarkList');
-
       // Calculate new state - update pinned status and order
       const nextBookmarks = bookmarks.map((b) =>
         selectedIds.includes(b.id) ? { ...b, pinned: false } : b
@@ -351,10 +333,8 @@ export default function BookmarkList({
 
       // Single atomic state update
       persistAll(nextBookmarks, books, rootOrder, nextPinnedOrder);
-
-      logBulkOperationCompletion('bulk-unpin', selectedIds.length, selectedIds.length);
     } catch (error) {
-      logBulkOperationFailure('bulk-unpin', error as Error, { selectedIds });
+      console.error('Bulk unpin failed:', error);
     }
   }
 
@@ -366,8 +346,6 @@ export default function BookmarkList({
    */
   async function moveSelectedToBook(targetBookId: string | null) {
     try {
-      logBulkOperationStart('bulk-move', selectedIds.length, 'BookmarkList');
-
       // Calculate new state - update bookmark bookId assignments
       const nextBookmarks = bookmarks.map((b) =>
         selectedIds.includes(b.id) ? { ...b, bookId: targetBookId } : b
@@ -396,10 +374,8 @@ export default function BookmarkList({
 
       // Single atomic state update
       persistAll(nextBookmarks, nextBooks, nextRootOrder, pinnedOrder);
-
-      logBulkOperationCompletion('bulk-move', selectedIds.length, selectedIds.length);
     } catch (error) {
-      logBulkOperationFailure('bulk-move', error as Error, { selectedIds, targetBookId });
+      console.error('Bulk move failed:', error);
     }
   }
 

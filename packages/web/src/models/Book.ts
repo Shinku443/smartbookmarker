@@ -13,4 +13,6 @@ export type Book = {
   parentBookId: string | null;
    /** Optional emoji icon for the book */
   icon?: string | null;
+  /** CouchDB document ID for API operations */
+  couchdbId?: string;
 };
